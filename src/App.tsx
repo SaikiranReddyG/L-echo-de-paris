@@ -134,10 +134,59 @@ const AZERTY_ROWS = [
   ]
 ];
 
+const ACCENT_TOUR = [
+  { char: "é", hint: "Touche 2" },
+  { char: "è", hint: "Touche 7" },
+  { char: "à", hint: "Touche 0" },
+  { char: "ç", hint: "Touche 9" },
+  { char: "ù", hint: "Touche ù (à droite de M)" },
+  { char: "â", hint: "Touche ^ puis a" },
+  { char: "ê", hint: "Touche ^ puis e" },
+  { char: "î", hint: "Touche ^ puis i" },
+  { char: "ô", hint: "Touche ^ puis o" },
+  { char: "û", hint: "Touche ^ puis u" },
+  { char: "ë", hint: "Touche ¨ (Maj+^) puis e" },
+  { char: "ï", hint: "Touche ¨ (Maj+^) puis i" }
+];
+
+const ACCENT_WORDS_DRILL_SENTENCES: Sentence[] = [
+  { french: "été été été", english: "" },
+  { french: "ça ça ça", english: "" },
+  { french: "là où à", english: "" },
+  { french: "fenêtre", english: "" },
+  { french: "naïf", english: "" },
+  { french: "cœur", english: "" }
+];
+
+function generateLettersDrill(): Sentence[] {
+  const letters = ["a", "z", "q", "w", "m"];
+  const sentences: Sentence[] = [];
+  for (let s = 0; s < 15; s++) {
+    const parts: string[] = [];
+    for (let p = 0; p < 3; p++) {
+      const shuffled = [...letters].sort(() => Math.random() - 0.5);
+      parts.push(shuffled.join(""));
+    }
+    sentences.push({
+      french: parts.join(" "),
+      english: ""
+    });
+  }
+  return sentences;
+}
+
 export default function App() {
   // Navigation & Screens
-  // "library" | "practice" | "results"
-  const [currentScreen, setCurrentScreen] = useState<"library" | "practice" | "results">("library");
+  // "library" | "learn" | "practice" | "results"
+  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results">("library");
+
+  // Custom Training state
+  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration">("story");
+  const [accentsPhase, setAccentsPhase] = useState<1 | 2>(1);
+  const [accentTourIdx, setAccentTourIdx] = useState(0);
+  const [tourFeedback, setTourFeedback] = useState<"success" | "error" | null>(null);
+  const [calibrationPart, setCalibrationPart] = useState<1 | 2>(1);
+  const [showCalibrationTransition, setShowCalibrationTransition] = useState(false);
   
   // DB Loaded States
   const [stories, setStories] = useState<Story[]>([]);
@@ -146,7 +195,11 @@ export default function App() {
     audioSpeed: "normal",
     ttsApiKey: "",
     theme: "dark",
-    soundEffects: true
+    soundEffects: true,
+    lettersComplete: false,
+    accentsComplete: false,
+    calibrationComplete: false,
+    bannerDismissed: false
   });
 
   // Current Working Session State
@@ -473,6 +526,70 @@ export default function App() {
   const handleTypeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     
+    const isAccentsTourActive = (practiceType === "accents" && accentsPhase === 1) ||
+                                (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1);
+
+    if (isAccentsTourActive) {
+      const currentAccent = ACCENT_TOUR[accentTourIdx];
+      const typedChar = val.trim();
+      if (typedChar.length === 0) return;
+      
+      if (typedChar === currentAccent.char) {
+        if (settings.soundEffects) playSuccessSound();
+        setTourFeedback("success");
+        playSentenceAudio(currentAccent.char);
+        setTimeout(() => {
+          setTourFeedback(null);
+          setTypedText("");
+          if (inputRef.current) {
+            inputRef.current.value = "";
+          }
+          
+          if (accentTourIdx + 1 < ACCENT_TOUR.length) {
+            setAccentTourIdx(prev => prev + 1);
+            playSentenceAudio(ACCENT_TOUR[accentTourIdx + 1].char);
+          } else {
+            // Completed Phase 1! Move to Phase 2 (drill)
+            setIsSpeaking(false);
+            if (window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
+            
+            setAccentsPhase(2);
+            const accentStory: Story = {
+              id: "drill-accents",
+              title: practiceType === "calibration" ? "Calibration - Partie 2" : "Accents essentiels",
+              level: "beginner",
+              sentences: ACCENT_WORDS_DRILL_SENTENCES,
+              createdAt: Date.now(),
+              isBuiltIn: true
+            };
+            setSelectedStory(accentStory);
+            setCurrentSentenceIndex(0);
+            setTypedText("");
+            setSessionStartTime(Date.now());
+            setSentenceStartTime(null);
+            setActiveSentenceErrors(0);
+            setSessionTotalCharsTyped(0);
+            setSessionTotalErrors(0);
+            playSentenceAudio(ACCENT_WORDS_DRILL_SENTENCES[0].french);
+          }
+        }, 400);
+      } else {
+        if (settings.soundEffects) playErrorSound();
+        setTourFeedback("error");
+        setSessionTotalErrors(prev => prev + 1);
+        setTimeout(() => {
+          setTourFeedback(null);
+          setTypedText("");
+          if (inputRef.current) {
+            inputRef.current.value = "";
+          }
+        }, 400);
+      }
+      return;
+    }
+    
     // Prevent typing further than sentence length
     if (!currentSentence || val.length > currentSentence.french.length) return;
 
@@ -558,7 +675,14 @@ export default function App() {
       setCurrentSentenceIndex(prev => prev + 1);
     } else {
       // All sentences completed! Finalize story stats
-      handleCompleteStorySession();
+      if (practiceType === "calibration" && calibrationPart === 1) {
+        setShowCalibrationTransition(true);
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
+      } else {
+        handleCompleteStorySession();
+      }
     }
   };
 
@@ -610,6 +734,17 @@ export default function App() {
     try {
       await saveSession(newAttempt);
       setCompletedSessionDetails(newAttempt);
+
+      // Update learn screen completion statuses in state and database
+      if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration") {
+        const updatedSettings = { ...settings };
+        if (practiceType === "letters") updatedSettings.lettersComplete = true;
+        if (practiceType === "accents") updatedSettings.accentsComplete = true;
+        if (practiceType === "calibration") updatedSettings.calibrationComplete = true;
+        setSettings(updatedSettings);
+        await saveSettings(updatedSettings);
+      }
+
       await refreshLibraryData();
       setCurrentScreen("results");
     } catch (err) {
@@ -921,6 +1056,36 @@ export default function App() {
           <h1 className="text-base sm:text-lg font-semibold tracking-tight text-white cursor-pointer hover:opacity-85" onClick={() => setCurrentScreen("library")}>
             L’Écho de Paris <span className="text-xs text-zinc-500 font-normal">French Typing</span>
           </h1>
+
+          {/* Navigation tabs between Bibliothèque and Apprendre */}
+          {(currentScreen === "library" || currentScreen === "learn") && (
+            <div className="flex items-center gap-1.5 ml-4 border-l border-white/10 pl-4">
+              <button
+                onClick={() => setCurrentScreen("library")}
+                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                  currentScreen === "library"
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "text-zinc-400 hover:text-white border-transparent"
+                }`}
+              >
+                Bibliothèque
+              </button>
+              <button
+                onClick={() => setCurrentScreen("learn")}
+                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer relative ${
+                  currentScreen === "learn"
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "text-zinc-400 hover:text-white border-transparent"
+                }`}
+              >
+                Apprendre
+                {!settings.calibrationComplete && !settings.lettersComplete && (
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                )}
+              </button>
+            </div>
+          )}
+
           {currentScreen === "practice" && selectedStory && (
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase border ml-2 ${
               selectedStory.level === "beginner" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
@@ -995,6 +1160,41 @@ export default function App() {
         {/* VIEW 1: PRE-SEEDED STORIES LIBRARY LIST & ACTIVITY STATS */}
         {currentScreen === "library" && (
           <div className="w-full animate-fade-in flex flex-col gap-6">
+
+            {/* Onboarding Calibration Banner */}
+            {!settings.calibrationComplete && !settings.bannerDismissed && (
+              <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in mb-2 col-span-full">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-sans">
+                    ✨
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-white font-sans">Nouveau sur l'agencement AZERTY ?</h4>
+                    <p className="text-xs text-zinc-400 mt-0.5 font-sans">Commencez par notre calibration des touches et des accents essentiels pour vous échauffer.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                  <button 
+                    onClick={async () => {
+                      const updated = { ...settings, bannerDismissed: true };
+                      setSettings(updated);
+                      await saveSettings(updated);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer font-sans"
+                  >
+                    Ignorer
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setCurrentScreen("learn");
+                    }}
+                    className="px-4 py-1.5 text-xs font-bold text-black bg-emerald-400 hover:bg-emerald-500 rounded-lg shadow-lg flex items-center gap-1 transition-all hover:scale-105 cursor-pointer font-sans"
+                  >
+                    Aller à Apprendre <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
             
             {/* Header Display Board */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
@@ -1247,18 +1447,327 @@ export default function App() {
           </div>
         )}
 
+        {/* VIEW 1.5: APPRENDRE (LEARN) TRAINING CLINIC */}
+        {currentScreen === "learn" && (
+          <div className="w-full animate-fade-in flex flex-col gap-6">
+            
+            {/* Header Display Board */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Apprentissage Interactif</h2>
+                <p className="text-sm text-zinc-400 mt-1 max-w-xl font-sans">
+                  Développez votre mémoire musculaire sur l'agencement AZERTY. Domptez les touches déplacées et maîtrisez l'accès rapide aux caractères accentués.
+                </p>
+              </div>
+            </div>
+
+            {/* Grid of 3 Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              
+              {/* Card 1: Lettres AZERTY */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/40 group-hover:bg-emerald-500 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    {settings.lettersComplete ? (
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                        Complété ✓
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
+                    )}
+                    <span className="text-[11px] text-zinc-500">15 séquences</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                    Lettres AZERTY
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    A Z Q W M — les 5 touches déplacées uniques par rapport à l'agencement QWERTY standard.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => {
+                      setPracticeType("letters");
+                      const ls: Story = {
+                        id: "drill-letters",
+                        title: "Lettres AZERTY",
+                        level: "beginner",
+                        sentences: generateLettersDrill(),
+                        createdAt: Date.now(),
+                        isBuiltIn: true
+                      };
+                      setSelectedStory(ls);
+                      setCurrentSentenceIndex(0);
+                      setTypedText("");
+                      setSessionStartTime(null);
+                      setSentenceStartTime(null);
+                      setActiveSentenceErrors(0);
+                      setSessionTotalCharsTyped(0);
+                      setSessionTotalErrors(0);
+                      setCurrentScreen("practice");
+                    }}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Accents essentiels */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-amber-500/40 group-hover:bg-amber-500 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    {settings.accentsComplete ? (
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                        Complété ✓
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
+                    )}
+                    <span className="text-[11px] text-zinc-500">2 phases</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                    Accents essentiels
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    é è ç à ù â ê î ô û ë ï — apprenez les touches puis pratiquez sur des mots réels.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => {
+                      setPracticeType("accents");
+                      setAccentsPhase(1);
+                      setAccentTourIdx(0);
+                      const as: Story = {
+                        id: "drill-accents-init",
+                        title: "Accents essentiels",
+                        level: "beginner",
+                        sentences: [{ french: "é", english: "" }],
+                        createdAt: Date.now(),
+                        isBuiltIn: true
+                      };
+                      setSelectedStory(as);
+                      setCurrentSentenceIndex(0);
+                      setTypedText("");
+                      setSessionStartTime(Date.now());
+                      setSentenceStartTime(null);
+                      setActiveSentenceErrors(0);
+                      setSessionTotalCharsTyped(0);
+                      setSessionTotalErrors(0);
+                      setCurrentScreen("practice");
+                      playSentenceAudio("é");
+                    }}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Calibration complète */}
+              <div className={`group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border rounded-2xl p-6 transition-all duration-300 relative overflow-hidden ${
+                !settings.calibrationComplete 
+                  ? "border-emerald-500/30 hover:border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.025)]" 
+                  : "border-white/5 hover:border-white/10"
+              }`}>
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-indigo-500/40 group-hover:bg-indigo-500 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    {settings.calibrationComplete ? (
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                        Complété ✓
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
+                    )}
+                    <span className="text-[11px] text-zinc-500">2 parties</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                    Calibration complète
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Lettres + accents — 2 minutes d'évaluation enchaînée complète pour calibrer vos doigts.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans font-sans">S'évaluer</span>
+                  <button
+                    onClick={() => {
+                      setPracticeType("calibration");
+                      setCalibrationPart(1);
+                      setAccentsPhase(1);
+                      setAccentTourIdx(0);
+                      const cs: Story = {
+                        id: "drill-calibration-1",
+                        title: "Calibration complète",
+                        level: "beginner",
+                        sentences: generateLettersDrill(),
+                        createdAt: Date.now(),
+                        isBuiltIn: true
+                      };
+                      setSelectedStory(cs);
+                      setCurrentSentenceIndex(0);
+                      setTypedText("");
+                      setSessionStartTime(null);
+                      setSentenceStartTime(null);
+                      setActiveSentenceErrors(0);
+                      setSessionTotalCharsTyped(0);
+                      setSessionTotalErrors(0);
+                      setCurrentScreen("practice");
+                    }}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
         {/* VIEW 2: DYNAMIC SENTENCE BY SENTENCE TYPING WORKSPACE */}
-        {currentScreen === "practice" && selectedStory && currentSentence && (
+        {currentScreen === "practice" && showCalibrationTransition && (
+          <div className="max-w-xl w-full mx-auto flex flex-col items-center justify-center p-8 bg-[#111216] border border-white/5 rounded-3xl text-center shadow-2xl my-12 animate-fade-in relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500" />
+            
+            <Languages className="w-12 h-12 text-emerald-400 mb-4 animate-bounce" />
+            <h3 className="text-2xl font-serif text-white tracking-tight mb-2">Bien joué ! Partie 1 Complétée</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-6 font-sans">
+              Vous venez de calibrer vos doigts sur les 5 touches AZERTY déplacées (<strong className="text-zinc-200 font-bold">A Z Q W M</strong>). 
+              Passons maintenant à la <strong className="text-emerald-400 font-bold font-sans">Partie 2</strong> : l'entraînement interactif sur les accents essentiels du français.
+            </p>
+
+            <button
+              onClick={() => {
+                setShowCalibrationTransition(false);
+                setCalibrationPart(2);
+                setAccentsPhase(1);
+                setAccentTourIdx(0);
+                setTypedText("");
+                setSessionStartTime(Date.now());
+                setSentenceStartTime(null);
+                setActiveSentenceErrors(0);
+                setSessionTotalCharsTyped(0);
+                setSessionTotalErrors(0);
+                playSentenceAudio(ACCENT_TOUR[0].char);
+              }}
+              className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-black font-semibold text-xs uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-2 font-sans"
+            >
+              Lancer la Partie 2 <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {currentScreen === "practice" && ((practiceType === "accents" && accentsPhase === 1) || (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1)) && (
+          <div 
+            onClick={() => {
+              if (inputRef.current) {
+                inputRef.current.focus();
+              }
+            }}
+            className={`w-full max-w-2xl mx-auto flex flex-col items-center justify-center p-8 bg-[#111216] border rounded-3xl transition-all duration-300 relative overflow-hidden min-h-[380px] cursor-text my-8 ${
+              tourFeedback === "success" ? "border-emerald-500/50 bg-emerald-500/[0.03] shadow-[0_0_30px_rgba(16,185,129,0.05)]" :
+              tourFeedback === "error" ? "border-rose-500/50 bg-rose-500/[0.03] shadow-[0_0_30px_rgba(239,68,68,0.05)]" :
+              "border-white/5"
+            }`}
+          >
+            {/* Hidden textarea to capture strokes */}
+            <textarea
+              ref={inputRef}
+              value={typedText}
+              onChange={handleTypeChange}
+              onKeyDown={handleKeyDown}
+              className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
+              autoFocus
+              placeholder="Frappez ici..."
+            />
+
+            {/* Header */}
+            <div className="flex justify-between items-center w-full max-w-md mb-6 font-sans">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if ("speechSynthesis" in window) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setCurrentScreen("learn");
+                  }}
+                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-[10px] uppercase font-bold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                >
+                  ← Quitter
+                </button>
+              </div>
+              <span className="text-[10px] tracking-widest text-zinc-500 font-mono uppercase">
+                Accent {accentTourIdx + 1} sur {ACCENT_TOUR.length}
+              </span>
+            </div>
+
+            {/* Large Character display */}
+            <div className="flex-1 flex flex-col items-center justify-center mb-8">
+              <span className={`text-8xl sm:text-9xl font-serif leading-none filter transition-all duration-200 ${
+                tourFeedback === "success" ? "text-emerald-400 scale-110" :
+                tourFeedback === "error" ? "text-rose-400 animate-pulse" :
+                "text-white"
+              }`}>
+                {ACCENT_TOUR[accentTourIdx].char}
+              </span>
+              
+              {/* Visual Keyboard Hint Instruction */}
+              <div className="mt-8 text-center bg-white/[0.02] border border-white/5 rounded-2xl p-4 w-full px-8 max-w-sm">
+                <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold block mb-1 font-sans">
+                  Touche à presser sur votre clavier :
+                </span>
+                <span className="text-sm font-semibold text-emerald-400 font-mono">
+                  {ACCENT_TOUR[accentTourIdx].hint}
+                </span>
+              </div>
+            </div>
+
+            {/* Guide instructions feedback footer toast */}
+            <div className="text-xs text-zinc-500 font-medium font-sans">
+              {tourFeedback === "success" ? (
+                <span className="text-emerald-400 flex items-center gap-1">Excellent !</span>
+              ) : tourFeedback === "error" ? (
+                <span className="text-rose-400 flex items-center gap-1">Oups ! Ce n'est pas cette touche</span>
+              ) : (
+                <span>Appliquez la combinaison demandée...</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {currentScreen === "practice" && !showCalibrationTransition && !((practiceType === "accents" && accentsPhase === 1) || (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1)) && selectedStory && currentSentence && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-8 mt-4">
             
             {/* Header / Meta / Progress marker */}
-            <div className="flex flex-col items-center relative gap-2">
+            <div className="flex flex-col items-center relative gap-2 font-sans">
               <div className="flex items-center gap-4">
                 <button 
-                  onClick={() => setCurrentScreen("library")}
+                  onClick={() => {
+                    if ("speechSynthesis" in window) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setCurrentScreen(practiceType === "story" ? "library" : "learn");
+                  }}
                   className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
                 >
-                  ← Retour à la bibliothèque
+                  {practiceType === "story" ? "← Retour à la bibliothèque" : "← Retour à Apprendre"}
                 </button>
                 <div className="h-4 w-px bg-white/10" />
                 <span className="text-xs font-bold text-zinc-400 truncate max-w-xs">{selectedStory.title}</span>

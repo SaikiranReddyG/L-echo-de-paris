@@ -73,7 +73,11 @@ export async function initDB(): Promise<void> {
       audioSpeed: "normal",
       ttsApiKey: "",
       theme: "dark",
-      soundEffects: true
+      soundEffects: true,
+      lettersComplete: false,
+      accentsComplete: false,
+      calibrationComplete: false,
+      bannerDismissed: false
     };
     settingsStore.put({ key: "config", value: defaultSettings });
   }
@@ -145,13 +149,27 @@ export async function getSettings(): Promise<AppSettings> {
     const req = store.get("config");
     req.onsuccess = () => {
       if (req.result && req.result.value) {
-        resolve(req.result.value as AppSettings);
+        const val = req.result.value;
+        resolve({
+          audioSpeed: val.audioSpeed || "normal",
+          ttsApiKey: val.ttsApiKey || "",
+          theme: val.theme || "dark",
+          soundEffects: val.soundEffects !== undefined ? val.soundEffects : true,
+          lettersComplete: !!val.lettersComplete,
+          accentsComplete: !!val.accentsComplete,
+          calibrationComplete: !!val.calibrationComplete,
+          bannerDismissed: !!val.bannerDismissed
+        });
       } else {
         resolve({
           audioSpeed: "normal",
           ttsApiKey: "",
           theme: "dark",
-          soundEffects: true
+          soundEffects: true,
+          lettersComplete: false,
+          accentsComplete: false,
+          calibrationComplete: false,
+          bannerDismissed: false
         });
       }
     };
@@ -160,7 +178,11 @@ export async function getSettings(): Promise<AppSettings> {
         audioSpeed: "normal",
         ttsApiKey: "",
         theme: "dark",
-        soundEffects: true
+        soundEffects: true,
+        lettersComplete: false,
+        accentsComplete: false,
+        calibrationComplete: false,
+        bannerDismissed: false
       });
     };
   });

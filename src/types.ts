@@ -36,4 +36,8 @@ export interface AppSettings {
   ttsApiKey: string; // Optional (e.g., ElevenLabs / OpenAI)
   theme: "light" | "dark";
   soundEffects: boolean;
+  lettersComplete?: boolean;
+  accentsComplete?: boolean;
+  calibrationComplete?: boolean;
+  bannerDismissed?: boolean;
 }
