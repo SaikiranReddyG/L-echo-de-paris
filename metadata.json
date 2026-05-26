@@ -1,0 +1,6 @@
+{
+  "name": "French Typing App",
+  "description": "Learn French typing speed, accuracy, and comprehension with a mirror-mode typing zone, text-to-speech feedback, error alerts, and the ability to add custom stories with AI translations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
