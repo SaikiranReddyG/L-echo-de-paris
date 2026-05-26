@@ -41,3 +41,15 @@ export interface AppSettings {
   calibrationComplete?: boolean;
   bannerDismissed?: boolean;
 }
+
+export interface DrillSessionAttempt {
+  id: string;
+  date: number;
+  duration: number; // in seconds
+  totalTyped: number;
+  accuracy: number;
+  errors: number;
+  errorsByChar: { [key: string]: number };
+  wpm: number;
+}
+

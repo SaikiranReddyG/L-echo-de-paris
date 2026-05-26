@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Story, SessionAttempt, AppSettings } from "../types";
+import { Story, SessionAttempt, AppSettings, DrillSessionAttempt } from "../types";
 import { builtInStories } from "../data/builtInStories";
 
 const DB_NAME = "FrenchTypingAppDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -29,6 +29,10 @@ export function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });
+      }
+
+      if (!db.objectStoreNames.contains("drillSessions")) {
+        db.createObjectStore("drillSessions", { keyPath: "id" });
       }
     };
   });
@@ -199,10 +203,40 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   });
 }
 
+// DRILL SESSIONS API
+export async function getDrillSessions(): Promise<DrillSessionAttempt[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains("drillSessions")) {
+      resolve([]);
+      return;
+    }
+    const tx = db.transaction("drillSessions", "readonly");
+    const store = tx.objectStore("drillSessions");
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result as DrillSessionAttempt[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveDrillSession(session: DrillSessionAttempt): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("drillSessions", "readwrite");
+    const store = tx.objectStore("drillSessions");
+    const req = store.put(session);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // RESET ALL DATA
 export async function clearAllData(): Promise<void> {
   const db = await openDB();
   const stores = ["stories", "sessions", "settings"];
+  if (db.objectStoreNames.contains("drillSessions")) {
+    stores.push("drillSessions");
+  }
   const tx = db.transaction(stores, "readwrite");
   
   for (const storeName of stores) {

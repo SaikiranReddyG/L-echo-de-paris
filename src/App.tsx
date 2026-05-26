@@ -29,7 +29,7 @@ import {
   Languages,
   ArrowRight
 } from "lucide-react";
-import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings } from "./types";
+import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt } from "./types";
 import { 
   initDB, 
   getStories, 
@@ -41,7 +41,9 @@ import {
   saveSettings, 
   clearAllData, 
   dbExportJSON, 
-  dbImportJSON 
+  dbImportJSON,
+  saveDrillSession,
+  getDrillSessions
 } from "./utils/db";
 import { playSuccessSound, playErrorSound } from "./utils/sound";
 
@@ -133,6 +135,37 @@ const AZERTY_ROWS = [
     { isSpecial: true, label: "MAJ.", width: "w-16 sm:w-20" }
   ]
 ];
+
+function getKeyMainForChar(char: string): string {
+  if (!char) return "";
+  const lower = char.toLowerCase();
+  if (lower === "a") return "a";
+  if (lower === "z") return "z";
+  if (lower === "q") return "q";
+  if (lower === "w") return "w";
+  if (lower === "m") return "m";
+  if (char === "é") return "é";
+  if (char === "è") return "è";
+  if (char === "ç") return "ç";
+  if (char === "à") return "à";
+  if (char === "ù") return "ù";
+  return lower;
+}
+
+function getFingerHint(expectedKey: string): { hand: "left" | "right"; finger: string } {
+  const k = expectedKey.toLowerCase();
+  if (["a", "q", "1", "&", "²", "<"].includes(k)) return { hand: "left", finger: "Auriculaire (Pinky)" };
+  if (["z", "w", "2", "é"].includes(k)) return { hand: "left", finger: "Annulaire (Ring)" };
+  if (["e", "s", "x", "3", '"'].includes(k)) return { hand: "left", finger: "Majeur (Middle)" };
+  if (["r", "d", "c", "t", "f", "v", "b", "4", "5", "'", "("].includes(k)) return { hand: "left", finger: "Index" };
+  
+  if (k === " ") return { hand: "left", finger: "Pouce (Thumb)" };
+  
+  if (["y", "g", "h", "n", "u", "j", "6", "7", "è"].includes(k)) return { hand: "right", finger: "Index" };
+  if (["i", "k", ",", "8", "_"].includes(k)) return { hand: "right", finger: "Majeur (Middle)" };
+  if (["o", "l", ";", "9", "ç"].includes(k)) return { hand: "right", finger: "Annulaire (Ring)" };
+  return { hand: "right", finger: "Auriculaire (Pinky)" };
+}
 
 const ACCENT_TOUR = [
   { char: "é", hint: "Touche 2" },
@@ -272,6 +305,30 @@ export default function App() {
 
   // Dynamic feedback hints variables
   const [showAccentTooltip, setShowAccentTooltip] = useState<string | null>(null);
+
+  // Typing Master Letters Drill States
+  const [drillStage, setDrillStage] = useState<1 | 2 | 3 | 4>(1);
+  const [drillRound, setDrillRound] = useState<number>(1);
+  const [drillItemIndex, setDrillItemIndex] = useState<number>(0);
+  const [drillItems, setDrillItems] = useState<string[]>([]);
+  const [drillTotalTyped, setDrillTotalTyped] = useState<number>(0);
+  const [drillTotalErrors, setDrillTotalErrors] = useState<number>(0);
+  const [drillStartTime, setDrillStartTime] = useState<number | null>(null);
+  const [drillErrorsByChar, setDrillErrorsByChar] = useState<Record<string, number>>({});
+  const [drillShowHandsHint, setDrillShowHandsHint] = useState<boolean>(true);
+  const [drillFlashKey, setDrillFlashKey] = useState<string | null>(null);
+  const [drillFlashStatus, setDrillFlashStatus] = useState<"success" | "error" | null>(null);
+  const [drillIsFinished, setDrillIsFinished] = useState<boolean>(false);
+  const [stageFlashMessage, setStageFlashMessage] = useState<string | null>(null);
+  const [drillTargetFlash, setDrillTargetFlash] = useState<boolean>(false);
+  const [completedDrillDetails, setCompletedDrillDetails] = useState<DrillSessionAttempt | null>(null);
+
+  const showStageFlash = (msg: string) => {
+    setStageFlashMessage(msg);
+    setTimeout(() => {
+      setStageFlashMessage(null);
+    }, 2500);
+  };
 
   // ---------------------------------------------------------------------------
   // 1. Core Bootstrapping & DB Synch
@@ -479,6 +536,134 @@ export default function App() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Typing Master letters drill helpers and workflow triggers
+  // ---------------------------------------------------------------------------
+  const generateDrillStage1 = () => {
+    const keys = ["a", "z", "q", "w", "m"];
+    const items: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      items.push(keys[Math.floor(Math.random() * keys.length)]);
+    }
+    return items;
+  };
+
+  const generateDrillStage2 = (roundNum: number) => {
+    const keys = ["a", "z", "q", "w", "m"];
+    const items: string[] = [];
+    const len = Math.min(2 + (roundNum - 1), 5);
+    for (let i = 0; i < 20; i++) {
+      let combo = "";
+      for (let j = 0; j < len; j++) {
+        combo += keys[Math.floor(Math.random() * keys.length)];
+      }
+      items.push(combo);
+    }
+    return items;
+  };
+
+  const generateDrillStage3 = (roundNum: number) => {
+    const keys = ["a", "z", "q", "w", "m"];
+    const items: string[] = [];
+    const len = Math.min(3 + (roundNum - 1), 6);
+    for (let i = 0; i < 20; i++) {
+      let combo = "";
+      for (let j = 0; j < len; j++) {
+        combo += keys[Math.floor(Math.random() * keys.length)];
+      }
+      items.push(combo);
+    }
+    return items;
+  };
+
+  const generateDrillStage4 = () => {
+    const words = ["avec", "maison", "Quiz", "wagon", "zèle", "azur", "mazout"];
+    const items: string[] = [];
+    for (let i = 0; i < 15; i++) {
+      items.push(words[Math.floor(Math.random() * words.length)]);
+    }
+    return items;
+  };
+
+  const speakDrillTargetText = (text: string) => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.name.includes("Thomas"))
+        || voices.find(v => v.name.includes("Amélie"))
+        || voices.find(v => v.name.includes("Google français"))
+        || voices.find(v => v.lang === "fr-FR")
+        || voices.find(v => v.lang.startsWith("fr"));
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "fr-FR";
+      utterance.rate = 0.78;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      if (preferred) utterance.voice = preferred;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const startLettersDrillSession = (roundNum: number = 1) => {
+    setPracticeType("letters");
+    setDrillStage(1);
+    setDrillRound(roundNum);
+    setDrillItemIndex(0);
+    
+    const items = generateDrillStage1();
+    setDrillItems(items);
+    setTypedText("");
+    setDrillTotalTyped(0);
+    setDrillTotalErrors(0);
+    setDrillStartTime(Date.now());
+    setDrillErrorsByChar({});
+    setDrillFlashKey(null);
+    setDrillFlashStatus(null);
+    setDrillIsFinished(false);
+    setCompletedDrillDetails(null);
+    
+    setTimeout(() => {
+      speakDrillTargetText(items[0]);
+    }, 100);
+
+    setCurrentScreen("practice");
+  };
+
+  const handleStopLettersDrill = async () => {
+    if (drillStartTime === null) return;
+    const duration = Math.max(1, Math.round((Date.now() - drillStartTime) / 1000));
+    
+    const min = duration / 60;
+    const correctChars = Math.max(0, drillTotalTyped - drillTotalErrors);
+    const wpm = Math.max(1, Math.round((correctChars / 5) / min));
+    
+    const accuracy = drillTotalTyped > 0 
+      ? Math.max(0, Math.min(100, Math.round(((drillTotalTyped - drillTotalErrors) / drillTotalTyped) * 100)))
+      : 100;
+
+    const session: DrillSessionAttempt = {
+      id: `drill-attempt-${Date.now()}`,
+      date: Date.now(),
+      duration,
+      totalTyped: drillTotalTyped,
+      accuracy,
+      errors: drillTotalErrors,
+      errorsByChar: drillErrorsByChar,
+      wpm
+    };
+
+    try {
+      await saveDrillSession(session);
+    } catch (e) {
+      console.error("Failed to save drill session:", e);
+    }
+
+    setCompletedDrillDetails(session);
+    setDrillIsFinished(true);
+    setCurrentScreen("results");
+  };
+
+  // ---------------------------------------------------------------------------
   // 3. Typing Logic Engine
   // ---------------------------------------------------------------------------
   const currentSentence: Sentence | null = useMemo(() => {
@@ -525,6 +710,111 @@ export default function App() {
   // Main typing keyboard stroke listener
   const handleTypeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+
+    if (practiceType === "letters") {
+      if (drillIsFinished) return;
+      if (val.length === 0) {
+        setTypedText("");
+        return;
+      }
+
+      if (val.length > typedText.length) {
+        const typedChar = val[val.length - 1];
+        const targetWord = drillItems[drillItemIndex];
+        if (!targetWord) return;
+        
+        const expectedChar = targetWord[typedText.length];
+
+        if (typedChar === expectedChar) {
+          if (settings.soundEffects) playSuccessSound();
+          
+          const newTyped = typedText + typedChar;
+          setTypedText(newTyped);
+          setDrillTotalTyped(prev => prev + 1);
+          
+          setDrillFlashKey(getKeyMainForChar(typedChar));
+          setDrillFlashStatus("success");
+          setTimeout(() => {
+            setDrillFlashKey(null);
+            setDrillFlashStatus(null);
+          }, 150);
+
+          if (newTyped === targetWord) {
+            setDrillTargetFlash(true);
+            setTimeout(() => setDrillTargetFlash(false), 200);
+
+            const nextIdx = drillItemIndex + 1;
+            setTypedText("");
+            if (inputRef.current) {
+              inputRef.current.value = "";
+            }
+
+            if (nextIdx < drillItems.length) {
+              setDrillItemIndex(nextIdx);
+              speakDrillTargetText(drillItems[nextIdx]);
+            } else {
+              if (drillStage === 1) {
+                setDrillStage(2);
+                const s2 = generateDrillStage2(drillRound);
+                setDrillItems(s2);
+                setDrillItemIndex(0);
+                showStageFlash("Stage 2 !");
+                speakDrillTargetText(s2[0]);
+              } else if (drillStage === 2) {
+                setDrillStage(3);
+                const s3 = generateDrillStage3(drillRound);
+                setDrillItems(s3);
+                setDrillItemIndex(0);
+                showStageFlash("Stage 3 !");
+                speakDrillTargetText(s3[0]);
+              } else if (drillStage === 3) {
+                setDrillStage(4);
+                const s4 = generateDrillStage4();
+                setDrillItems(s4);
+                setDrillItemIndex(0);
+                showStageFlash("Stage 4 !");
+                speakDrillTargetText(s4[0]);
+              } else if (drillStage === 4) {
+                const nextRound = drillRound + 1;
+                setDrillRound(nextRound);
+                setDrillStage(1);
+                const s1 = generateDrillStage1();
+                setDrillItems(s1);
+                setDrillItemIndex(0);
+                showStageFlash(`Ronde ${nextRound} - Stage 1 !`);
+                speakDrillTargetText(s1[0]);
+              }
+            }
+          }
+        } else {
+          if (settings.soundEffects) playErrorSound();
+          
+          setDrillTotalTyped(prev => prev + 1);
+          setDrillTotalErrors(prev => prev + 1);
+          if (expectedChar) {
+            setDrillErrorsByChar(prev => ({
+              ...prev,
+              [expectedChar]: (prev[expectedChar] || 0) + 1
+            }));
+          }
+
+          setDrillFlashKey(getKeyMainForChar(typedChar));
+          setDrillFlashStatus("error");
+          setTimeout(() => {
+            setDrillFlashKey(null);
+            setDrillFlashStatus(null);
+          }, 150);
+
+          setTypedText("");
+          if (inputRef.current) {
+            inputRef.current.value = "";
+          }
+        }
+      } else {
+        setTypedText(val);
+      }
+      return;
+    }
     
     const isAccentsTourActive = (practiceType === "accents" && accentsPhase === 1) ||
                                 (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1);
@@ -799,7 +1089,12 @@ export default function App() {
     // Replay audio with custom keyboard shortcut Tab or Ctrl+Space
     if (e.key === "Tab") {
       e.preventDefault();
-      if (currentSentence) {
+      if (practiceType === "letters") {
+        const textToSpeak = drillItems[drillItemIndex];
+        if (textToSpeak) {
+          speakDrillTargetText(textToSpeak);
+        }
+      } else if (currentSentence) {
         playSentenceAudio(currentSentence.french);
       }
     }
@@ -1491,26 +1786,7 @@ export default function App() {
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
-                    onClick={() => {
-                      setPracticeType("letters");
-                      const ls: Story = {
-                        id: "drill-letters",
-                        title: "Lettres AZERTY",
-                        level: "beginner",
-                        sentences: generateLettersDrill(),
-                        createdAt: Date.now(),
-                        isBuiltIn: true
-                      };
-                      setSelectedStory(ls);
-                      setCurrentSentenceIndex(0);
-                      setTypedText("");
-                      setSessionStartTime(null);
-                      setSentenceStartTime(null);
-                      setActiveSentenceErrors(0);
-                      setSessionTotalCharsTyped(0);
-                      setSessionTotalErrors(0);
-                      setCurrentScreen("practice");
-                    }}
+                    onClick={() => startLettersDrillSession(1)}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
                     COMMENCER <ChevronRight className="w-3 h-3" />
@@ -1752,7 +2028,309 @@ export default function App() {
           </div>
         )}
 
-        {currentScreen === "practice" && !showCalibrationTransition && !((practiceType === "accents" && accentsPhase === 1) || (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1)) && selectedStory && currentSentence && (
+        {/* VIEW 2.5: INTERACTIVE TYPING MASTER AZERTY LETTERS DRILL */}
+        {currentScreen === "practice" && practiceType === "letters" && (
+          <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
+            
+            {/* Header / Meta / Progress marker */}
+            <div className="flex flex-col items-center relative gap-2 font-sans mb-2">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => {
+                    if ("speechSynthesis" in window) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setCurrentScreen("learn");
+                  }}
+                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                >
+                  ← Retour à Apprendre
+                </button>
+                <div className="h-4 w-px bg-white/10" />
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                  Ronde {drillRound}
+                </span>
+                <div className="h-4 w-px bg-white/10" />
+                <button 
+                  onClick={handleStopLettersDrill}
+                  className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 transition-all cursor-pointer font-sans"
+                >
+                  Terminer la session
+                </button>
+              </div>
+
+              {/* Stage Indicators */}
+              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-3">
+                {[1, 2, 3, 4].map((stageNum) => (
+                  <div key={stageNum} className="flex items-center gap-1.5 sm:gap-2">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                      drillStage === stageNum 
+                        ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" 
+                        : drillStage > stageNum 
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
+                        : "bg-white/5 text-zinc-500 border border-white/5"
+                    }`}>
+                      {stageNum}
+                    </div>
+                    <span className={`text-[10px] sm:text-[11px] font-sans font-semibold uppercase tracking-wider ${
+                      drillStage === stageNum ? "text-white" : "text-zinc-500"
+                    }`}>
+                      {stageNum === 1 ? "Touches" : stageNum === 2 ? "Combos courts" : stageNum === 3 ? "Combos longs" : "Mots"}
+                    </span>
+                    {stageNum < 4 && <ChevronRight className="w-3 h-3 text-zinc-700 hidden sm:block" />}
+                  </div>
+                ))}
+              </div>
+
+              {/* Current sequence progression bar */}
+              <div className="flex items-center gap-3 mt-3">
+                <span className="text-[10px] text-zinc-500 font-mono uppercase">
+                  Séquence {drillItemIndex + 1} sur {drillItems.length}
+                </span>
+                <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${(drillItemIndex / drillItems.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Target Display Panel */}
+            <div className="flex-1 flex flex-col items-center justify-center py-4 min-h-[180px]">
+              <div 
+                onClick={focusInputZone}
+                className={`max-w-2xl w-full text-center relative py-8 px-6 bg-zinc-950 border rounded-3xl cursor-text transition-all duration-300 overflow-hidden ${
+                  drillTargetFlash 
+                    ? "border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.15)] bg-emerald-500/[0.01]" 
+                    : "border-white/5 hover:border-white/10"
+                }`}
+              >
+                <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.01] to-transparent pointer-events-none" />
+
+                {/* Stage completed flash overlay */}
+                {stageFlashMessage && (
+                  <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-30 transition-all duration-300 animate-fade-in p-4 text-center">
+                    <h3 className="text-xl sm:text-2xl font-serif text-emerald-400 font-bold mb-2 tracking-wider uppercase animate-bounce">
+                      {stageFlashMessage}
+                    </h3>
+                    <p className="text-xs text-zinc-400 max-w-xs leading-relaxed">
+                      Préparez-vous ! Étape suivante générée d'après votre apprentissage.
+                    </p>
+                  </div>
+                )}
+
+                {/* Main combo letters rendering block */}
+                <div className="text-5xl sm:text-6xl lg:text-[72px] font-mono tracking-wider select-none py-4 flex justify-center items-center gap-1 font-bold">
+                  {(() => {
+                    const targetWord = drillItems[drillItemIndex] || "";
+                    return targetWord.split("").map((expectedChar, idx) => {
+                      const isTyped = idx < typedText.length;
+                      const isActive = idx === typedText.length;
+                      
+                      let colorClass = "text-zinc-700";
+                      let borderClass = "";
+
+                      if (isTyped) {
+                        colorClass = "text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.35)]";
+                      } else if (isActive) {
+                        colorClass = "text-white scale-110";
+                        borderClass = "border-b-4 border-emerald-400 animate-pulse";
+                      }
+
+                      return (
+                        <span key={idx} className={`inline-block transition-all duration-150 ${colorClass} ${borderClass}`}>
+                          {expectedChar}
+                        </span>
+                      );
+                    });
+                  })()}
+                </div>
+
+                <div className="text-[10px] text-zinc-500 uppercase tracking-widest mt-2">
+                  {typedText.length > 0 ? "Continuez de saisir..." : "Frappez la combinaison demandée"}
+                </div>
+              </div>
+            </div>
+
+            {/* AZERTY Reference Keyboard displaying target highlighting and keystroke flash */}
+            <div className="w-full bg-[#111216] border border-white/5 rounded-3xl p-5 flex flex-col gap-2 overflow-x-auto select-none scrollbar-thin">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Visualisation du Clavier AZERTY</span>
+                <button 
+                  onClick={() => setDrillShowHandsHint(!drillShowHandsHint)}
+                  className="px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] font-sans font-bold text-zinc-400 hover:text-white transition-all cursor-pointer"
+                >
+                  {drillShowHandsHint ? "Masquer l'aide des mains font-sans" : "Afficher l'aide des mains font-sans"}
+                </button>
+              </div>
+              
+              {(() => {
+                const targetWord = drillItems[drillItemIndex] || "";
+                const expectedChar = targetWord[typedText.length] || "";
+                const expectedKeyMain = getKeyMainForChar(expectedChar);
+
+                return (
+                  <>
+                    {/* Rows 1-4 */}
+                    {AZERTY_ROWS.map((row, rIdx) => (
+                      <div key={rIdx} className="flex justify-center gap-1 min-w-max">
+                        {row.map((keyObj, kIdx) => {
+                          if (keyObj.isSpecial) {
+                            return (
+                              <div 
+                                key={kIdx} 
+                                className={`h-10 flex items-center justify-center bg-zinc-950 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-500 select-none uppercase ${keyObj.width || "w-11"}`}
+                              >
+                                {keyObj.label}
+                              </div>
+                            );
+                          }
+
+                          const isTarget = keyObj.main === expectedKeyMain || (keyObj.sub && keyObj.sub.toLowerCase() === expectedKeyMain);
+                          const isFlashed = drillFlashKey === keyObj.main || (keyObj.sub && drillFlashKey === keyObj.sub.toLowerCase());
+                          
+                          let keyBg = "bg-zinc-900/45 border-white/5 text-zinc-550";
+                          if (isFlashed) {
+                            keyBg = drillFlashStatus === "success" 
+                              ? "bg-emerald-500 text-black border-emerald-400 font-semibold scale-95 shadow-[0_0_15px_rgba(16,185,129,0.3)]" 
+                              : "bg-rose-500 text-white border-rose-450 font-semibold scale-95 shadow-[0_0_15px_rgba(239,68,68,0.35)] animate-shake";
+                          } else if (isTarget) {
+                            keyBg = "bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.1)] font-semibold";
+                          } else {
+                            keyBg = "bg-zinc-900/40 border-white/5 text-zinc-450";
+                          }
+
+                          return (
+                            <div 
+                              key={kIdx} 
+                              className={`w-9 h-10 flex-shrink-0 relative rounded-lg flex items-center justify-center pt-2 select-none border transition-all duration-100 ${keyBg}`}
+                            >
+                              {keyObj.sub && (
+                                <span className={`absolute top-0.5 left-1 text-[8px] font-medium ${isFlashed && drillFlashStatus === "success" ? "text-black/50" : "text-zinc-650"}`}>
+                                  {keyObj.sub}
+                                </span>
+                              )}
+                              <span className="text-xs font-semibold">
+                                {keyObj.main}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+
+                    {/* Row 5: Space Bar Row */}
+                    <div className="flex justify-center gap-1 min-w-max mt-0.5">
+                      <div className="w-11 h-10 flex items-center justify-center bg-zinc-950 border border-white/5 rounded-lg text-[8px] font-bold text-zinc-500 uppercase select-none">
+                        CTRL
+                      </div>
+                      <div className="w-9 h-10 flex items-center justify-center bg-zinc-950 border border-white/5 rounded-lg text-[8px] font-bold text-zinc-500 uppercase select-none">
+                        ALT
+                      </div>
+                      {(() => {
+                        const isSpaceTarget = expectedKeyMain === " ";
+                        const isSpaceFlashed = drillFlashKey === " " || drillFlashKey === "space";
+                        let spaceBg = "bg-zinc-900/40 border-white/5";
+                        if (isSpaceFlashed) {
+                          spaceBg = drillFlashStatus === "success" 
+                            ? "bg-emerald-500 text-black border-emerald-400" 
+                            : "bg-rose-500 text-white border-rose-400 animate-shake";
+                        } else if (isSpaceTarget) {
+                          spaceBg = "bg-emerald-500/20 text-emerald-400 border-emerald-500/50";
+                        }
+                        return (
+                          <div className={`w-64 h-10 border rounded-lg flex items-center justify-center text-[9px] font-bold uppercase select-none transition-all duration-100 ${spaceBg} ${isSpaceTarget ? "text-emerald-400 animate-pulse font-semibold" : "text-zinc-500"}`}>
+                            ESPACE
+                          </div>
+                        );
+                      })()}
+                      <div className="w-9 h-10 flex items-center justify-center bg-zinc-950 border border-white/5 rounded-lg text-[8px] font-bold text-zinc-500 uppercase select-none">
+                        ALT GR
+                      </div>
+                      <div className="w-11 h-10 flex items-center justify-center bg-zinc-950 border border-white/5 rounded-lg text-[8px] font-bold text-zinc-500 uppercase select-none">
+                        CTRL
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Hands Hint graphic overlays */}
+            {drillShowHandsHint && (
+              <div className="flex flex-col items-center gap-2 mt-2 font-sans max-w-xl mx-auto w-full">
+                <div className="flex justify-between w-full bg-[#111216]/60 border border-white/5 rounded-2xl p-4 gap-6">
+                  {(() => {
+                    const targetWord = drillItems[drillItemIndex] || "";
+                    const expectedChar = targetWord[typedText.length] || "";
+                    const expectedKeyMain = getKeyMainForChar(expectedChar);
+                    const { hand, finger } = getFingerHint(expectedKeyMain);
+
+                    return (
+                      <>
+                        {/* Left Hand Card */}
+                        <div className={`flex-1 flex flex-col items-center p-3 rounded-xl border transition-all duration-150 ${
+                          hand === "left" && expectedChar
+                            ? "bg-emerald-500/[0.03] border-emerald-500/30 text-emerald-400" 
+                            : "border-transparent text-zinc-650 opacity-50"
+                        }`}>
+                          <span className="text-[10px] font-bold uppercase tracking-wider mb-2">Main Gauche (Left Key)</span>
+                          <div className="flex gap-2 items-end h-16">
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "left" && finger.includes("Pinky") ? "bg-emerald-400 h-10 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-6"}`} title="Auriculaire (Pinky)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "left" && finger.includes("Ring") ? "bg-emerald-400 h-14 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-10"}`} title="Annulaire (Ring)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "left" && finger.includes("Middle") ? "bg-emerald-400 h-16 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-12"}`} title="Majeur (Middle)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "left" && finger.includes("Index") ? "bg-emerald-400 h-14 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-10"}`} title="Index" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "left" && finger.includes("Thumb") ? "bg-emerald-400 h-8 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-5"}`} title="Pouce (Thumb)" />
+                          </div>
+                          {hand === "left" && expectedChar && (
+                            <span className="text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded-full mt-2 font-semibold">
+                              {finger}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Right Hand Card */}
+                        <div className={`flex-1 flex flex-col items-center p-3 rounded-xl border transition-all duration-150 ${
+                          hand === "right" && expectedChar
+                            ? "bg-emerald-500/[0.03] border-emerald-500/30 text-emerald-400" 
+                            : "border-transparent text-zinc-650 opacity-50"
+                        }`}>
+                          <span className="text-[10px] font-bold uppercase tracking-wider mb-2">Main Droite (Right Key)</span>
+                          <div className="flex gap-2 items-end h-16">
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "right" && finger.includes("Thumb") ? "bg-emerald-400 h-8 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-5"}`} title="Pouce (Thumb)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "right" && finger.includes("Index") ? "bg-emerald-400 h-14 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-10"}`} title="Index" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "right" && finger.includes("Middle") ? "bg-emerald-400 h-16 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-12"}`} title="Majeur (Middle)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "right" && finger.includes("Ring") ? "bg-emerald-400 h-14 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-10"}`} title="Annulaire (Ring)" />
+                            <div className={`w-3.5 rounded-t-lg transition-all duration-150 ${hand === "right" && finger.includes("Pinky") ? "bg-emerald-400 h-10 shadow-[0_0_10px_rgba(52,211,153,0.4)]" : "bg-zinc-800/60 h-6"}`} title="Auriculaire (Pinky)" />
+                          </div>
+                          {hand === "right" && expectedChar && (
+                            <span className="text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded-full mt-2 font-semibold">
+                              {finger}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Hidden Input field to collect typing stroke inputs */}
+            <textarea
+              ref={inputRef}
+              value={typedText}
+              onChange={handleTypeChange}
+              onKeyDown={handleKeyDown}
+              className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
+              autoFocus
+              placeholder="Frappez ici..."
+            />
+          </div>
+        )}
+
+        {currentScreen === "practice" && !showCalibrationTransition && !((practiceType === "accents" && accentsPhase === 1) || (practiceType === "calibration" && calibrationPart === 2 && accentsPhase === 1)) && practiceType !== "letters" && selectedStory && currentSentence && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-8 mt-4">
             
             {/* Header / Meta / Progress marker */}
@@ -2067,8 +2645,134 @@ export default function App() {
           </div>
         )}
 
+        {/* VIEW 3.5: DRILL LETTERS PERFORMANCE RESULTS */}
+        {currentScreen === "results" && practiceType === "letters" && completedDrillDetails && (
+          <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
+            
+            {/* Header / Celebration Title */}
+            <div className="text-center flex flex-col items-center gap-2 font-sans">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Session terminée !</h2>
+              <p className="text-sm text-zinc-400 max-w-md">
+                Vous avez terminé l'entraînement intensif des <span className="text-white font-medium">Lettres AZERTY</span>.
+              </p>
+            </div>
+
+            {/* Grid Metrics Report */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Vitesse</span>
+                <span className="text-3xl font-mono text-white mt-1 leading-none">{completedDrillDetails.wpm}</span>
+                <span className="text-[10px] text-zinc-500 mt-1 font-sans">mots par minute</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Précision</span>
+                <span className="text-3xl font-mono text-emerald-400 mt-1 leading-none">{completedDrillDetails.accuracy}%</span>
+                <span className="text-[10px] text-zinc-500 mt-1 font-sans">frappes correctes</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Erreurs</span>
+                <span className="text-3xl font-mono text-rose-500 mt-1 leading-none">{completedDrillDetails.errors}</span>
+                <span className="text-[10px] text-zinc-500 mt-1 font-sans">frappes manquées</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Temps</span>
+                <span className="text-3xl font-mono text-amber-400 mt-1 leading-none">
+                  {(() => {
+                    const m = Math.floor(completedDrillDetails.duration / 60);
+                    const s = completedDrillDetails.duration % 60;
+                    return m > 0 ? `${m}m` : `${s}s`;
+                  })()}
+                </span>
+                <span className="text-[10px] text-zinc-500 mt-1 font-sans">durée de l'exercice</span>
+              </div>
+            </div>
+
+            {/* Specific letters causing the most errors */}
+            <div className="p-6 bg-white/[0.01] border border-white/5 rounded-2xl font-sans">
+              <h3 className="text-sm font-serif text-white mb-3 flex items-center gap-1.5 border-b border-white/5 pb-2">
+                <Languages className="w-4 h-4 text-emerald-400" /> Touches nécessitant du travail
+              </h3>
+              
+              {Object.keys(completedDrillDetails.errorsByChar).length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs text-zinc-400">
+                    Ces lettres AZERTY spécifiques ont généré le plus de fautes de frappe. Précisez la position de vos doigts pour ces touches :
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {Object.entries(completedDrillDetails.errorsByChar)
+                      .map(([char, errCount]) => [char, Number(errCount)] as [string, number])
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([char, errCount]) => (
+                        <span 
+                          key={char} 
+                          className="px-3 py-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 text-xs font-mono rounded flex items-center gap-1.5"
+                        >
+                          Touche <strong className="uppercase text-white font-bold">{char}</strong> : {errCount} {errCount > 1 ? "erreurs" : "erreur"}
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-500 italic">
+                  Incroyable ! Aucune faute sur les touches AZERTY déplacées (A-Z-Q-W-M). Vos doigts sont des experts !
+                </p>
+              )}
+            </div>
+
+            {/* Actions panel */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 justify-center mt-4">
+              <button 
+                onClick={() => startLettersDrillSession(1)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/15 text-white border border-white/10 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Recommencer l'entraînement
+              </button>
+              
+              <button 
+                onClick={() => {
+                  setPracticeType("accents");
+                  setAccentsPhase(1);
+                  setAccentTourIdx(0);
+                  const as: Story = {
+                    id: "drill-accents-init",
+                    title: "Accents essentiels",
+                    level: "beginner",
+                    sentences: [{ french: "é", english: "" }],
+                    createdAt: Date.now(),
+                    isBuiltIn: true
+                  };
+                  setSelectedStory(as);
+                  setCurrentSentenceIndex(0);
+                  setTypedText("");
+                  setSessionStartTime(Date.now());
+                  setSentenceStartTime(null);
+                  setActiveSentenceErrors(0);
+                  setSessionTotalCharsTyped(0);
+                  setSessionTotalErrors(0);
+                  setCurrentScreen("practice");
+                  playSentenceAudio("é");
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
+              >
+                Continuer vers Accents <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button 
+                onClick={() => setCurrentScreen("learn")}
+                className="w-full sm:w-auto px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center transition-all cursor-pointer font-sans"
+              >
+                Retourner aux exercices
+              </button>
+            </div>
+
+          </div>
+        )}
+
         {/* VIEW 3: PERFORMANCE RESULTS REPORT & HARDEST WORDS SUMMARY */}
-        {currentScreen === "results" && completedSessionDetails && selectedStory && (
+        {currentScreen === "results" && practiceType !== "letters" && completedSessionDetails && selectedStory && (
           <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
             
             {/* Header / Celebration Title */}
