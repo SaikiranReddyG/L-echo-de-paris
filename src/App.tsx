@@ -65,6 +65,75 @@ const ACCENT_HINTS: { [key: string]: { char: string; qwerty: string } } = {
   "Ç": { char: "Ç", qwerty: "Type: Shift+' then C" }
 };
 
+const AZERTY_ROWS = [
+  // Row 1
+  [
+    { main: "²", sub: "" },
+    { main: "&", sub: "1" },
+    { main: "é", sub: "2" },
+    { main: "\"", sub: "3" },
+    { main: "'", sub: "4" },
+    { main: "(", sub: "5" },
+    { main: "-", sub: "6" },
+    { main: "è", sub: "7" },
+    { main: "_", sub: "8" },
+    { main: "ç", sub: "9" },
+    { main: "à", sub: "0" },
+    { main: ")", sub: "°" },
+    { main: "=", sub: "+" },
+    { isSpecial: true, label: "RET. ARRIÈRE", width: "w-20 sm:w-24" }
+  ],
+  // Row 2
+  [
+    { isSpecial: true, label: "TAB", width: "w-10 sm:w-12" },
+    { main: "a", sub: "A" },
+    { main: "z", sub: "Z" },
+    { main: "e", sub: "E" },
+    { main: "r", sub: "R" },
+    { main: "t", sub: "T" },
+    { main: "y", sub: "Y" },
+    { main: "u", sub: "U" },
+    { main: "i", sub: "I" },
+    { main: "o", sub: "O" },
+    { main: "p", sub: "P" },
+    { main: "^", sub: "¨" },
+    { main: "$", sub: "£" }
+  ],
+  // Row 3
+  [
+    { isSpecial: true, label: "VERR. MAJ.", width: "w-12 sm:w-14" },
+    { main: "q", sub: "Q" },
+    { main: "s", sub: "S" },
+    { main: "d", sub: "D" },
+    { main: "f", sub: "F" },
+    { main: "g", sub: "G" },
+    { main: "h", sub: "H" },
+    { main: "j", sub: "J" },
+    { main: "k", sub: "K" },
+    { main: "l", sub: "L" },
+    { main: "m", sub: "M" },
+    { main: "ù", sub: "%" },
+    { main: "*", sub: "µ" },
+    { isSpecial: true, label: "ENTRÉE", width: "w-16 sm:w-20" }
+  ],
+  // Row 4
+  [
+    { isSpecial: true, label: "MAJ.", width: "w-14 sm:w-18" },
+    { main: "<", sub: ">" },
+    { main: "w", sub: "W" },
+    { main: "x", sub: "X" },
+    { main: "c", sub: "C" },
+    { main: "v", sub: "V" },
+    { main: "b", sub: "B" },
+    { main: "n", sub: "N" },
+    { main: ",", sub: "?" },
+    { main: ";", sub: "." },
+    { main: ":", sub: "/" },
+    { main: "!", sub: "§" },
+    { isSpecial: true, label: "MAJ.", width: "w-16 sm:w-20" }
+  ]
+];
+
 export default function App() {
   // Navigation & Screens
   // "library" | "practice" | "results"
@@ -124,6 +193,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAddStoryOpen, setIsAddStoryOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isAzertyKeyboardOpen, setIsAzertyKeyboardOpen] = useState(false);
   
   // Settings Import/Export Log
   const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
@@ -1292,6 +1362,80 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* AZERTY Keyboard Reference Block */}
+            <div className="max-w-3xl w-full mx-auto flex flex-col items-center mt-3">
+              <button 
+                onClick={() => setIsAzertyKeyboardOpen(!isAzertyKeyboardOpen)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white border border-white/5 transition-all cursor-pointer"
+              >
+                <span>Clavier AZERTY</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${isAzertyKeyboardOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isAzertyKeyboardOpen && (
+                <div className="w-full bg-[#111216] border border-white/5 rounded-2xl p-4 mt-3 flex flex-col gap-2 overflow-x-auto select-none scrollbar-thin">
+                  {/* Rows 1-4 */}
+                  {AZERTY_ROWS.map((row, rIdx) => (
+                    <div key={rIdx} className="flex justify-center gap-1.5 min-w-max">
+                      {row.map((keyObj, kIdx) => {
+                        if (keyObj.isSpecial) {
+                          return (
+                            <div 
+                              key={kIdx} 
+                              className={`h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 select-none uppercase ${keyObj.width || "w-12"}`}
+                            >
+                              {keyObj.label}
+                            </div>
+                          );
+                        }
+
+                        const isAccent = ["é", "è", "à", "ç", "ù", "^"].includes(keyObj.main);
+
+                        return (
+                          <div 
+                            key={kIdx} 
+                            className={`w-10 h-11 flex-shrink-0 relative bg-zinc-900 rounded-lg flex items-center justify-center pt-2 select-none ${
+                              isAccent 
+                                ? "border border-emerald-500/30 bg-emerald-500/[0.02]" 
+                                : "border border-white/5"
+                            }`}
+                          >
+                            {keyObj.sub && (
+                              <span className="absolute top-1 left-1.5 text-[9px] font-medium text-zinc-500">
+                                {keyObj.sub}
+                              </span>
+                            )}
+                            <span className={`text-sm font-semibold ${isAccent ? "text-emerald-300 font-bold" : "text-zinc-200"}`}>
+                              {keyObj.main}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                  {/* Row 5: Space Bar Row */}
+                  <div className="flex justify-center gap-1.5 min-w-max mt-0.5">
+                    <div className="w-12 sm:w-16 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                      CTRL
+                    </div>
+                    <div className="w-10 sm:w-12 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                      ALT
+                    </div>
+                    <div className="w-64 sm:w-80 h-11 bg-zinc-900 border border-white/5 rounded-lg flex items-center justify-center text-[9px] font-bold text-zinc-500 uppercase select-none">
+                      ESPACE
+                    </div>
+                    <div className="w-10 sm:w-12 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                      ALT GR
+                    </div>
+                    <div className="w-12 sm:w-16 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                      CTRL
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Expandable Stories full contextual flow tray */}
