@@ -30,7 +30,7 @@ import {
   ArrowRight,
   Keyboard
 } from "lucide-react";
-import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt } from "./types";
+import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson } from "./types";
 import { 
   initDB, 
   getStories, 
@@ -44,7 +44,10 @@ import {
   dbExportJSON, 
   dbImportJSON,
   saveDrillSession,
-  getDrillSessions
+  getDrillSessions,
+  getLessons,
+  saveLesson,
+  deleteLesson
 } from "./utils/db";
 import { playSuccessSound, playErrorSound } from "./utils/sound";
 import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
@@ -236,10 +239,10 @@ function generateLettersDrill(): Sentence[] {
 export default function App() {
   // Navigation & Screens
   // "library" | "learn" | "practice" | "results"
-  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results">("library");
+  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup">("library");
 
   // Custom Training state
-  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free" | "flow" | "wordsShort" | "wordsLong" | "phrases" | "dictation">("story");
+  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free" | "flow" | "wordsShort" | "wordsLong" | "phrases" | "dictation" | "lesson">("story");
   const [accentsPhase, setAccentsPhase] = useState<1 | 2>(1);
   const [accentTourIdx, setAccentTourIdx] = useState(0);
   const [tourFeedback, setTourFeedback] = useState<"success" | "error" | null>(null);
@@ -261,8 +264,17 @@ export default function App() {
     lettersComplete: false,
     accentsComplete: false,
     calibrationComplete: false,
-    bannerDismissed: false
+    bannerDismissed: false,
+    streakCount: 0,
+    lastLessonDate: ""
   });
+
+  // Daily Lesson State
+  const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
+  const [pastLessons, setPastLessons] = useState<Lesson[]>([]);
+  const [lessonTitle, setLessonTitle] = useState("");
+  const [lessonText, setLessonText] = useState("");
+  const [lessonError, setLessonError] = useState<string | null>(null);
 
   // Current Working Session State
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
@@ -381,11 +393,13 @@ export default function App() {
         const loadedStories = await getStories();
         const loadedSessions = await getSessions();
         const loadedSettings = await getSettings();
+        const loadedLessons = await getLessons();
         
         // Sort stories: built-in first, then newly added
         setStories(loadedStories.sort((a, b) => b.createdAt - a.createdAt));
         setSessions(loadedSessions.sort((a, b) => b.date - a.date));
         setSettings(loadedSettings);
+        setPastLessons(loadedLessons.sort((a, b) => b.date - a.date));
 
         // Sync dark/light theme to document element
         applyTheme(loadedSettings.theme);
@@ -409,6 +423,116 @@ export default function App() {
     setSettings(newSettings);
     applyTheme(newSettings.theme);
     await saveSettings(newSettings);
+  };
+
+  const handleLessonCompleted = async (lesson: Lesson) => {
+    const completedLesson = { ...lesson, completed: true };
+    try {
+      await saveLesson(completedLesson);
+      const loadedLessons = await getLessons();
+      setPastLessons(loadedLessons.sort((a, b) => b.date - a.date));
+    } catch (err) {
+      console.error("Failed to save or load lessons:", err);
+    }
+
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
+
+    let newStreak = settings.streakCount || 0;
+    if (settings.lastLessonDate === todayStr) {
+      // Already finished today, stay same
+    } else if (settings.lastLessonDate === yesterdayStr) {
+      newStreak = (settings.streakCount || 0) + 1;
+    } else {
+      newStreak = 1;
+    }
+
+    const updatedSettings = {
+      ...settings,
+      streakCount: newStreak,
+      lastLessonDate: todayStr
+    };
+    setSettings(updatedSettings);
+    await saveSettings(updatedSettings);
+  };
+
+  const parseLessonText = (title: string, pastedText: string): { lesson: Omit<Lesson, "id" | "date" | "completed"> | null; error?: string } => {
+    if (!title.trim()) {
+      return { lesson: null, error: "Le titre de la leçon ne doit pas être vide." };
+    }
+
+    const wordsIndex = pastedText.indexOf("#WORDS");
+    const sentencesIndex = pastedText.indexOf("#SENTENCES");
+    const paragraphIndex = pastedText.indexOf("#PARAGRAPH");
+    const translationIndex = pastedText.indexOf("#TRANSLATION");
+
+    if (wordsIndex === -1) {
+      return { lesson: null, error: "La section #WORDS est manquante dans le texte collé." };
+    }
+    if (sentencesIndex === -1) {
+      return { lesson: null, error: "La section #SENTENCES est manquante dans le texte collé." };
+    }
+    if (paragraphIndex === -1) {
+      return { lesson: null, error: "La section #PARAGRAPH est manquante dans le texte collé." };
+    }
+
+    const markers = [
+      { label: "#WORDS", index: wordsIndex },
+      { label: "#SENTENCES", index: sentencesIndex },
+      { label: "#PARAGRAPH", index: paragraphIndex }
+    ];
+    if (translationIndex !== -1) {
+      markers.push({ label: "#TRANSLATION", index: translationIndex });
+    }
+
+    markers.sort((a, b) => a.index - b.index);
+
+    const sections: { [key: string]: string } = {};
+
+    for (let i = 0; i < markers.length; i++) {
+      const start = markers[i].index + markers[i].label.length;
+      const end = (i + 1 < markers.length) ? markers[i + 1].index : pastedText.length;
+      sections[markers[i].label] = pastedText.substring(start, end).trim();
+    }
+
+    const wordsStr = sections["#WORDS"] || "";
+    const sentencesStr = sections["#SENTENCES"] || "";
+    const paragraph = sections["#PARAGRAPH"] || "";
+    const translation = sections["#TRANSLATION"] || "";
+
+    const words = wordsStr
+      .split(/,|\n/)
+      .map(w => w.trim())
+      .filter(w => w.length > 0);
+
+    const sentences = sentencesStr
+      .split(/\n/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    if (words.length === 0) {
+      return { lesson: null, error: "La section #WORDS est vide ou mal formatée." };
+    }
+    if (sentences.length === 0) {
+      return { lesson: null, error: "La section #SENTENCES est vide ou mal formatée." };
+    }
+    if (!paragraph) {
+      return { lesson: null, error: "La section #PARAGRAPH est vide." };
+    }
+
+    return {
+      lesson: {
+        title: title.trim(),
+        words,
+        sentences,
+        paragraph,
+        translation
+      }
+    };
   };
 
   // Helper utility to reload library list
@@ -746,7 +870,7 @@ export default function App() {
     }
   };
 
-  const startDrillSession = (type: "letters" | "accents" | "calibration" | "flow" | "wordsShort" | "wordsLong" | "phrases" | "dictation", roundNum: number = 1) => {
+  const startDrillSession = (type: "letters" | "accents" | "calibration" | "flow" | "wordsShort" | "wordsLong" | "phrases" | "dictation" | "lesson", roundNum: number = 1, customLessonToPlay?: Lesson) => {
     setPracticeType(type);
     setDrillStage(1);
     setDrillRound(roundNum);
@@ -773,6 +897,24 @@ export default function App() {
         items = generateWordsShort(roundNum);
       } else {
         items = generateFlowStage(roundNum, 1);
+      }
+    } else if (type === "lesson") {
+      const lessonToUse = customLessonToPlay || activeLesson;
+      if (lessonToUse) {
+        setActiveLesson(lessonToUse);
+        const itemsStage1: string[] = [];
+        lessonToUse.words.forEach(w => {
+          itemsStage1.push(w, w);
+        });
+        const shuffle = (array: string[]) => {
+          const arr = [...array];
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+          return arr;
+        };
+        items = shuffle(itemsStage1);
       }
     }
 
@@ -887,7 +1029,7 @@ export default function App() {
   const processTypedChar = (typedCharRaw: string) => {
     const typedChar = typedCharRaw.normalize('NFC');
 
-    if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation") {
+    if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") {
       if (drillIsFinished) return;
 
       const targetWord = drillItems[drillItemIndex];
@@ -923,7 +1065,42 @@ export default function App() {
             setDrillItemIndex(nextIdx);
             speakDrillTargetText(drillItems[nextIdx]);
           } else {
-            if (practiceType === "flow") {
+            if (practiceType === "lesson") {
+              if (drillStage === 1) {
+                setDrillStage(2);
+                if (activeLesson) {
+                  setDrillItems(activeLesson.sentences);
+                  setDrillItemIndex(0);
+                  showStageFlash("Phrases !");
+                  speakDrillTargetText(activeLesson.sentences[0]);
+                }
+              } else if (drillStage === 2) {
+                setDrillStage(3);
+                if (activeLesson) {
+                  const getParagraphSentences = (p: string) => {
+                    return p.match(/[^.!?]+[.!?]+/g)?.map(s => s.trim()).filter(s => s.length > 0) || [p];
+                  };
+                  const s3 = getParagraphSentences(activeLesson.paragraph);
+                  setDrillItems(s3);
+                  setDrillItemIndex(0);
+                  showStageFlash("Paragraphe !");
+                  speakDrillTargetText(s3[0]);
+                }
+              } else if (drillStage === 3) {
+                setDrillStage(4);
+                if (activeLesson) {
+                  setDrillItems(activeLesson.sentences);
+                  setDrillItemIndex(0);
+                  showStageFlash("Dictée !");
+                  speakDrillTargetText(activeLesson.sentences[0]);
+                }
+              } else if (drillStage === 4) {
+                if (activeLesson) {
+                  handleLessonCompleted(activeLesson);
+                }
+                handleStopLettersDrill();
+              }
+            } else if (practiceType === "flow") {
               if (drillStage === 1) {
                 setDrillStage(2);
                 const s2 = generateFlowStage(drillRound, 2);
@@ -1115,9 +1292,10 @@ export default function App() {
           inputRef.current.value = "";
         }
 
-        if (practiceType === "dictation") {
+        if (practiceType === "dictation" || (practiceType === "lesson" && drillStage === 4)) {
           speakDrillTargetText(targetWord);
-          if (dictationHintLevel === "easy") {
+          const activeLevel = practiceType === "lesson" ? "easy" : dictationHintLevel;
+          if (activeLevel === "easy") {
             setDictationHintText(targetWord);
             setDictationHintActive(true);
             const globalWin = window as any;
@@ -1125,7 +1303,7 @@ export default function App() {
             globalWin.dictationHintTimeout = setTimeout(() => {
               setDictationHintActive(false);
             }, 1000);
-          } else if (dictationHintLevel === "medium") {
+          } else if (activeLevel === "medium") {
             setDictationHintText(expectedChar || "");
             setDictationHintActive(true);
             const globalWin = window as any;
@@ -1734,7 +1912,7 @@ export default function App() {
           </h1>
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
-          {(currentScreen === "library" || currentScreen === "learn" || (currentScreen === "practice" && practiceType === "free")) && (
+          {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free")) && (
             <div className="flex items-center gap-1.5 ml-4 border-l border-white/10 pl-4">
               <button
                 onClick={() => {
@@ -1769,7 +1947,7 @@ export default function App() {
                   setCurrentScreen("learn");
                 }}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer relative ${
-                  currentScreen === "learn"
+                  currentScreen === "learn" || currentScreen === "lesson-setup"
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                     : "text-zinc-400 hover:text-white border-transparent"
                 }`}
@@ -2475,6 +2653,39 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Card 9: Leçon du jour */}
+              <div id="card-daily-lesson" className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-blue-500/20 hover:border-blue-500/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.025)]">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-blue-500 group-hover:bg-blue-400 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      Quotidien
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono flex items-center gap-1">
+                      🔥 Série : {settings.streakCount || 0}
+                    </span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-blue-400" /> Leçon du jour
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Collez votre leçon (mots, phrases, paragraphe, dictée) et progressez à travers notre rituel adaptatif d'assimilation en 4 étapes.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">S'initier</span>
+                  <button
+                    onClick={() => setCurrentScreen("lesson-setup")}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans shadow-[0_0_15px_rgba(59,130,246,0.15)] bg-gradient-to-r from-blue-600 to-indigo-600"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
             </div>
 
             {/* Dictation Mode Setup Modal */}
@@ -2601,8 +2812,224 @@ export default function App() {
           </div>
         )}
 
+        {/* VIEW 2.2: LEÇON DU JOUR SETUP AND PAST LESSONS */}
+        {currentScreen === "lesson-setup" && (
+          <div className="w-full max-w-4xl mx-auto animate-fade-in flex flex-col gap-6 font-sans">
+            
+            {/* Navigation Header */}
+            <div className="flex items-center justify-between font-sans pb-4 border-b border-white/5">
+              <button
+                onClick={() => {
+                  setLessonError(null);
+                  setCurrentScreen("learn");
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+              >
+                ← Retour à Apprendre
+              </button>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Rituel Quotidien</span>
+                <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-bold flex items-center gap-1">
+                  🔥 Série : {settings.streakCount || 0} jours
+                </span>
+              </div>
+            </div>
+
+            {/* Main grid: Form on the left/full, past lessons on the right/bottom */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Left Column: Lesson Parser form */}
+              <div className="lg:col-span-2 bg-[#0c0d11]/80 backdrop-blur-md rounded-2xl p-6 border border-white/5 flex flex-col gap-5">
+                <div>
+                  <h2 className="text-xl font-serif text-white leading-tight mb-1 flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-blue-400" /> Charger une Leçon du Jour
+                  </h2>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Collez votre set de pratique généré en externe. Le système formulera automatiquement les 4 étapes : Mots, Phrases, Pratique du Paragraphe et Dictée Audio.
+                  </p>
+                </div>
+
+                {lessonError && (
+                  <div className="p-3.5 bg-rose-500/10 border border-rose-500/25 rounded-xl text-xs text-rose-400 font-sans font-medium flex items-start gap-2 animate-pulse">
+                    <span>⚠️</span>
+                    <span>{lessonError}</span>
+                  </div>
+                )}
+
+                {/* Form fields */}
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500">Titre de la leçon</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: La Cuisine Française – Jour 1"
+                      value={lessonTitle}
+                      onChange={(e) => setLessonTitle(e.target.value)}
+                      className="w-full bg-[#050507] border border-white/5 hover:border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white rounded-xl px-4 py-2 text-sm transition-all focus:outline-none placeholder-zinc-600 font-sans"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-bold uppercase tracking-wider text-zinc-500">Texte structuré de la leçon</label>
+                      <button
+                        onClick={() => {
+                          setLessonTitle("Vocabulaire de la Cuisine");
+                          setLessonText(`#WORDS\ncuire, four, sel, farine\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n#TRANSLATION\nThis morning, I make bread...`);
+                        }}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase font-sans tracking-wide"
+                      >
+                        Insérer un exemple
+                      </button>
+                    </div>
+                    <textarea
+                      placeholder={`#WORDS\ncuire, four, sel, farine\n\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n\n#TRANSLATION\nThis morning, I make bread...`}
+                      value={lessonText}
+                      onChange={(e) => setLessonText(e.target.value)}
+                      rows={12}
+                      className="w-full bg-[#050507] border border-white/5 hover:border-[#1e2029] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white rounded-xl px-4 py-3 text-sm transition-all focus:outline-none font-mono placeholder-zinc-600 leading-relaxed scrollbar-thin"
+                    />
+                    <span className="text-[10px] text-zinc-500 leading-normal">
+                      Conseil : Utilisez exactement les balises <span className="text-zinc-400 font-mono">#WORDS</span>, <span className="text-zinc-400 font-mono">#SENTENCES</span>, <span className="text-zinc-400 font-mono">#PARAGRAPH</span> et <span className="text-zinc-400 font-mono">#TRANSLATION</span>.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      setLessonError(null);
+                      const parsed = parseLessonText(lessonTitle, lessonText);
+                      if (parsed.error || !parsed.lesson) {
+                        setLessonError(parsed.error || "Une erreur inconnue s'est produite.");
+                        return;
+                      }
+                      
+                      const newLessonObj: Lesson = {
+                        id: `lesson-${Date.now()}`,
+                        title: parsed.lesson.title,
+                        words: parsed.lesson.words,
+                        sentences: parsed.lesson.sentences,
+                        paragraph: parsed.lesson.paragraph,
+                        translation: parsed.lesson.translation,
+                        date: Date.now(),
+                        completed: false
+                      };
+
+                      try {
+                        await saveLesson(newLessonObj);
+                        const freshLessons = await getLessons();
+                        setPastLessons(freshLessons.sort((a,b) => b.date - a.date));
+                        
+                        // Start the drill
+                        setLessonTitle("");
+                        setLessonText("");
+                        startDrillSession("lesson", 1, newLessonObj);
+                      } catch (err) {
+                        console.error(err);
+                        setLessonError("Échec de la sauvegarde de la leçon dans l'application.");
+                      }
+                    }}
+                    className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-blue-500/10 font-sans"
+                  >
+                    Commencer la leçon <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Column: Library of Saved Lessons */}
+              <div className="bg-[#0c0d11]/80 backdrop-blur-md rounded-2xl p-6 border border-white/5 flex flex-col gap-4">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    🗃️ Bibliothèque des Leçons
+                  </h3>
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    Retrouvez et rejouez les exercices sauvegardés précédemment de votre historique.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 overflow-y-auto max-h-[460px] pr-1 scrollbar-thin flex-1">
+                  {pastLessons.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 px-4 text-center border border-dashed border-white/5 rounded-xl bg-white/[0.01]">
+                      <BookOpen className="w-8 h-8 text-zinc-600 mb-2" />
+                      <span className="text-xs text-zinc-500">Aucune leçon enregistrée</span>
+                    </div>
+                  ) : (
+                    pastLessons.map((les) => (
+                      <div 
+                        key={les.id} 
+                        className="p-3.5 rounded-xl border border-white/5 bg-zinc-950/40 hover:bg-zinc-950/80 transition-all flex flex-col gap-2.5"
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <span className="text-xs font-medium text-white block truncate max-w-[160px] font-sans" title={les.title}>
+                              {les.title}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 block">
+                              {new Date(les.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                            </span>
+                          </div>
+                          
+                          {les.completed ? (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                              Fait ✓
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-zinc-500/10 text-zinc-500 border border-white/5">
+                              Plein
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-[10px] text-zinc-400 flex flex-wrap gap-x-2.5 gap-y-1 bg-black/30 p-2 rounded-lg font-mono">
+                          <span>{les.words.length} Mots</span>
+                          <span className="text-zinc-700">•</span>
+                          <span>{les.sentences.length} Phr.</span>
+                          {les.translation && (
+                            <>
+                              <span className="text-zinc-700">•</span>
+                              <span className="text-zinc-500 uppercase font-sans text-[8px]">En ✓</span>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2 font-sans">
+                          <button
+                            onClick={() => startDrillSession("lesson", 1, les)}
+                            className="flex-1 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 text-[10px] font-bold uppercase tracking-wider rounded-lg border border-blue-500/15 transition-all cursor-pointer"
+                          >
+                            Rejouer
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await deleteLesson(les.id);
+                                const fresh = await getLessons();
+                                setPastLessons(fresh.sort((a,b) => b.date - a.date));
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                            className="p-1.5 bg-rose-500/5 hover:bg-rose-500/15 text-rose-500 hover:text-rose-400 text-[10px] font-bold rounded-lg border border-rose-500/10 transition-all cursor-pointer"
+                            title="Supprimer cette leçon"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
         {/* VIEW 2.5: INTERACTIVE TYPING MASTER AZERTY DRILL (LETTERS, ACCENTS, OR CALIBRATION) */}
-        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation") && (
+        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
             
             {/* Header / Meta / Progress marker */}
@@ -3620,7 +4047,7 @@ export default function App() {
         )}
 
         {/* VIEW 3.5: DRILL LETTERS PERFORMANCE RESULTS */}
-        {currentScreen === "results" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation") && completedDrillDetails && (
+        {currentScreen === "results" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") && completedDrillDetails && (
           <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
             
             {/* Header / Celebration Title */}
@@ -3644,6 +4071,8 @@ export default function App() {
                   <span>Vous avez terminé l'entraînement de <span className="text-white font-medium">Phrases complètes</span>.</span>
                 ) : practiceType === "dictation" ? (
                   <span>Vous avez terminé l'exercice de <span className="text-white font-medium">Dictée</span> (Jeu d'oreille) avec succès.</span>
+                ) : practiceType === "lesson" ? (
+                  <span>Vous avez terminé avec brio la <span className="text-white font-medium">Leçon du jour : {activeLesson?.title || ""}</span>, validant l'ensemble des 4 étapes progressives de la session.</span>
                 ) : (
                   <span>Vous avez terminé l'évaluation et la <span className="text-white font-medium">Calibration complète</span>.</span>
                 )}

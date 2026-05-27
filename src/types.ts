@@ -41,6 +41,19 @@ export interface AppSettings {
   accentsComplete?: boolean;
   calibrationComplete?: boolean;
   bannerDismissed?: boolean;
+  streakCount?: number;
+  lastLessonDate?: string; // YYYY-MM-DD format
+}
+
+export interface Lesson {
+  id: string;
+  title: string;
+  date: number; // Unix timestamp
+  words: string[];
+  sentences: string[];
+  paragraph: string;
+  translation: string;
+  completed: boolean;
 }
 
 export interface DrillSessionAttempt {

@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Story, SessionAttempt, AppSettings, DrillSessionAttempt } from "../types";
+import { Story, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson } from "../types";
 import { builtInStories } from "../data/builtInStories";
 
 const DB_NAME = "FrenchTypingAppDB";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,6 +33,10 @@ export function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains("drillSessions")) {
         db.createObjectStore("drillSessions", { keyPath: "id" });
+      }
+
+      if (!db.objectStoreNames.contains("lessons")) {
+        db.createObjectStore("lessons", { keyPath: "id" });
       }
     };
   });
@@ -162,7 +166,9 @@ export async function getSettings(): Promise<AppSettings> {
           lettersComplete: !!val.lettersComplete,
           accentsComplete: !!val.accentsComplete,
           calibrationComplete: !!val.calibrationComplete,
-          bannerDismissed: !!val.bannerDismissed
+          bannerDismissed: !!val.bannerDismissed,
+          streakCount: val.streakCount || 0,
+          lastLessonDate: val.lastLessonDate || ""
         });
       } else {
         resolve({
@@ -173,7 +179,9 @@ export async function getSettings(): Promise<AppSettings> {
           lettersComplete: false,
           accentsComplete: false,
           calibrationComplete: false,
-          bannerDismissed: false
+          bannerDismissed: false,
+          streakCount: 0,
+          lastLessonDate: ""
         });
       }
     };
@@ -186,7 +194,9 @@ export async function getSettings(): Promise<AppSettings> {
         lettersComplete: false,
         accentsComplete: false,
         calibrationComplete: false,
-        bannerDismissed: false
+        bannerDismissed: false,
+        streakCount: 0,
+        lastLessonDate: ""
       });
     };
   });
@@ -230,12 +240,53 @@ export async function saveDrillSession(session: DrillSessionAttempt): Promise<vo
   });
 }
 
+// LESSONS API
+export async function getLessons(): Promise<Lesson[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains("lessons")) {
+      resolve([]);
+      return;
+    }
+    const tx = db.transaction("lessons", "readonly");
+    const store = tx.objectStore("lessons");
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result as Lesson[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveLesson(lesson: Lesson): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("lessons", "readwrite");
+    const store = tx.objectStore("lessons");
+    const req = store.put(lesson);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteLesson(id: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("lessons", "readwrite");
+    const store = tx.objectStore("lessons");
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // RESET ALL DATA
 export async function clearAllData(): Promise<void> {
   const db = await openDB();
   const stores = ["stories", "sessions", "settings"];
   if (db.objectStoreNames.contains("drillSessions")) {
     stores.push("drillSessions");
+  }
+  if (db.objectStoreNames.contains("lessons")) {
+    stores.push("lessons");
   }
   const tx = db.transaction(stores, "readwrite");
   
