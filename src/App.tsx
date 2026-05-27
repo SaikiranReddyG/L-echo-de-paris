@@ -47,6 +47,8 @@ import {
   getDrillSessions
 } from "./utils/db";
 import { playSuccessSound, playErrorSound } from "./utils/sound";
+import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
+import { generateSentence } from "./data/sentenceGenerator";
 
 // Accent typing QWERTY combinations lookup helper
 const ACCENT_HINTS: { [key: string]: { char: string; qwerty: string } } = {
@@ -237,7 +239,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results">("library");
 
   // Custom Training state
-  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free">("story");
+  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free" | "flow" | "wordsShort" | "wordsLong" | "phrases">("story");
   const [accentsPhase, setAccentsPhase] = useState<1 | 2>(1);
   const [accentTourIdx, setAccentTourIdx] = useState(0);
   const [tourFeedback, setTourFeedback] = useState<"success" | "error" | null>(null);
@@ -322,6 +324,8 @@ export default function App() {
 
   // User input focus reference
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const isComposingRef = useRef(false);
+  const compositionTimeoutRef = useRef<number | null>(null);
 
   // Add Custom Story workflow states
   const [newStoryTitle, setNewStoryTitle] = useState("");
@@ -664,6 +668,59 @@ export default function App() {
     return items;
   };
 
+  const generateFlowStage = (round: number, stage: number): string[] => {
+    const items: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      if (stage === 1) {
+        const count = Math.min(1 + Math.floor(round / 2), 3);
+        const parts: string[] = [];
+        for (let j = 0; j < count; j++) {
+          parts.push(FR_SHORT[Math.floor(Math.random() * FR_SHORT.length)]);
+        }
+        items.push(parts.join(" "));
+      } else if (stage === 2) {
+        items.push(FR_MEDIUM[Math.floor(Math.random() * FR_MEDIUM.length)]);
+      } else if (stage === 3) {
+        items.push(FR_LONG[Math.floor(Math.random() * FR_LONG.length)]);
+      } else if (stage === 4) {
+        items.push(generateSentence(round));
+      }
+    }
+    return items;
+  };
+
+  const generateWordsShort = (round: number): string[] => {
+    const items: string[] = [];
+    const wordCount = Math.min(1 + Math.floor((round - 1) / 2), 4);
+    for (let i = 0; i < 12; i++) {
+      const parts: string[] = [];
+      for (let j = 0; j < wordCount; j++) {
+        parts.push(FR_SHORT[Math.floor(Math.random() * FR_SHORT.length)]);
+      }
+      items.push(parts.join(" "));
+    }
+    return items;
+  };
+
+  const generateWordsLong = (round: number): string[] => {
+    const items: string[] = [];
+    const mixProb = Math.min(0.15 * (round - 1), 0.75);
+    for (let i = 0; i < 12; i++) {
+      const useLong = Math.random() < mixProb;
+      const pool = useLong ? FR_LONG : FR_MEDIUM;
+      items.push(pool[Math.floor(Math.random() * pool.length)]);
+    }
+    return items;
+  };
+
+  const generatePhrases = (round: number): string[] => {
+    const items: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      items.push(generateSentence(round));
+    }
+    return items;
+  };
+
   const speakDrillTargetText = (text: string) => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -684,7 +741,7 @@ export default function App() {
     }
   };
 
-  const startDrillSession = (type: "letters" | "accents" | "calibration", roundNum: number = 1) => {
+  const startDrillSession = (type: "letters" | "accents" | "calibration" | "flow" | "wordsShort" | "wordsLong" | "phrases", roundNum: number = 1) => {
     setPracticeType(type);
     setDrillStage(1);
     setDrillRound(roundNum);
@@ -698,6 +755,14 @@ export default function App() {
       items = generateDrillStage1();
     } else if (type === "accents") {
       items = generateAccentStage1();
+    } else if (type === "flow") {
+      items = generateFlowStage(roundNum, 1);
+    } else if (type === "wordsShort") {
+      items = generateWordsShort(roundNum);
+    } else if (type === "wordsLong") {
+      items = generateWordsLong(roundNum);
+    } else if (type === "phrases") {
+      items = generatePhrases(roundNum);
     }
 
     setDrillItems(items);
@@ -799,50 +864,93 @@ export default function App() {
   }, [currentScreen, typedText, cursorLastMovedTime, currentSentence]);
 
   // Main typing keyboard stroke listener
-  const handleTypeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
+  const processTypedChar = (typedCharRaw: string) => {
+    const typedChar = typedCharRaw.normalize('NFC');
 
-    if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration") {
+    if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases") {
       if (drillIsFinished) return;
-      if (val.length === 0) {
-        setTypedText("");
-        return;
-      }
 
-      if (val.length > typedText.length) {
-        const typedChar = val[val.length - 1];
-        const targetWord = drillItems[drillItemIndex];
-        if (!targetWord) return;
+      const targetWord = drillItems[drillItemIndex];
+      if (!targetWord) return;
+      
+      const expectedChar = (targetWord[typedText.length] || "").normalize('NFC');
+
+      if (typedChar === expectedChar) {
+        if (settings.soundEffects) playSuccessSound();
         
-        const expectedChar = targetWord[typedText.length];
+        const newTyped = typedText + typedChar;
+        setTypedText(newTyped);
+        setDrillTotalTyped(prev => prev + 1);
+        
+        setDrillFlashKey(getKeyMainForChar(typedChar));
+        setDrillFlashStatus("success");
+        setTimeout(() => {
+          setDrillFlashKey(null);
+          setDrillFlashStatus(null);
+        }, 150);
 
-        if (typedChar === expectedChar) {
-          if (settings.soundEffects) playSuccessSound();
-          
-          const newTyped = typedText + typedChar;
-          setTypedText(newTyped);
-          setDrillTotalTyped(prev => prev + 1);
-          
-          setDrillFlashKey(getKeyMainForChar(typedChar));
-          setDrillFlashStatus("success");
-          setTimeout(() => {
-            setDrillFlashKey(null);
-            setDrillFlashStatus(null);
-          }, 150);
+        if (newTyped === targetWord) {
+          setDrillTargetFlash(true);
+          setTimeout(() => setDrillTargetFlash(false), 200);
 
-          if (newTyped === targetWord) {
-            setDrillTargetFlash(true);
-            setTimeout(() => setDrillTargetFlash(false), 200);
+          const nextIdx = drillItemIndex + 1;
+          setTypedText("");
+          if (inputRef.current) {
+            inputRef.current.value = "";
+          }
 
-            const nextIdx = drillItemIndex + 1;
-            setTypedText("");
-            if (inputRef.current) {
-              inputRef.current.value = "";
-            }
-
-            if (nextIdx < drillItems.length) {
-              setDrillItemIndex(nextIdx);
-              speakDrillTargetText(drillItems[nextIdx]);
+          if (nextIdx < drillItems.length) {
+            setDrillItemIndex(nextIdx);
+            speakDrillTargetText(drillItems[nextIdx]);
+          } else {
+            if (practiceType === "flow") {
+              if (drillStage === 1) {
+                setDrillStage(2);
+                const s2 = generateFlowStage(drillRound, 2);
+                setDrillItems(s2);
+                setDrillItemIndex(0);
+                showStageFlash("Mots moyens !");
+                speakDrillTargetText(s2[0]);
+              } else if (drillStage === 2) {
+                setDrillStage(3);
+                const s3 = generateFlowStage(drillRound, 3);
+                setDrillItems(s3);
+                setDrillItemIndex(0);
+                showStageFlash("Mots longs !");
+                speakDrillTargetText(s3[0]);
+              } else if (drillStage === 3) {
+                setDrillStage(4);
+                const s4 = generateFlowStage(drillRound, 4);
+                setDrillItems(s4);
+                setDrillItemIndex(0);
+                showStageFlash("Phrases complètes !");
+                speakDrillTargetText(s4[0]);
+              } else if (drillStage === 4) {
+                const nextRound = drillRound + 1;
+                setDrillRound(nextRound);
+                setDrillStage(1);
+                const s1 = generateFlowStage(nextRound, 1);
+                setDrillItems(s1);
+                setDrillItemIndex(0);
+                showStageFlash(`Ronde ${nextRound} - Mots courts !`);
+                speakDrillTargetText(s1[0]);
+              }
+            } else if (practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases") {
+              const nextRound = drillRound + 1;
+              setDrillRound(nextRound);
+              setDrillStage(1);
+              let s1: string[] = [];
+              if (practiceType === "wordsShort") {
+                s1 = generateWordsShort(nextRound);
+              } else if (practiceType === "wordsLong") {
+                s1 = generateWordsLong(nextRound);
+              } else {
+                s1 = generatePhrases(nextRound);
+              }
+              setDrillItems(s1);
+              setDrillItemIndex(0);
+              showStageFlash(`Ronde ${nextRound} !`);
+              speakDrillTargetText(s1[0]);
             } else {
               if (drillStage === 1) {
                 setDrillStage(2);
@@ -900,32 +1008,30 @@ export default function App() {
               }
             }
           }
-        } else {
-          if (settings.soundEffects) playErrorSound();
-          
-          setDrillTotalTyped(prev => prev + 1);
-          setDrillTotalErrors(prev => prev + 1);
-          if (expectedChar) {
-            setDrillErrorsByChar(prev => ({
-              ...prev,
-              [expectedChar]: (prev[expectedChar] || 0) + 1
-            }));
-          }
-
-          setDrillFlashKey(getKeyMainForChar(typedChar));
-          setDrillFlashStatus("error");
-          setTimeout(() => {
-            setDrillFlashKey(null);
-            setDrillFlashStatus(null);
-          }, 150);
-
-          setTypedText("");
-          if (inputRef.current) {
-            inputRef.current.value = "";
-          }
         }
       } else {
-        setTypedText(val);
+        if (settings.soundEffects) playErrorSound();
+        
+        setDrillTotalTyped(prev => prev + 1);
+        setDrillTotalErrors(prev => prev + 1);
+        if (expectedChar) {
+          setDrillErrorsByChar(prev => ({
+            ...prev,
+            [expectedChar]: (prev[expectedChar] || 0) + 1
+          }));
+        }
+
+        setDrillFlashKey(getKeyMainForChar(typedChar));
+        setDrillFlashStatus("error");
+        setTimeout(() => {
+          setDrillFlashKey(null);
+          setDrillFlashStatus(null);
+        }, 150);
+
+        setTypedText("");
+        if (inputRef.current) {
+          inputRef.current.value = "";
+        }
       }
       return;
     }
@@ -946,27 +1052,24 @@ export default function App() {
 
       setCursorLastMovedTime(Date.now());
 
-      if (val.length > typedText.length) {
-        const typedChar = val[val.length - 1];
-        const expectedChar = freeModeText[typedText.length];
+      const expectedChar = (freeModeText[typedText.length] || "").normalize('NFC');
 
-        if (typedChar === expectedChar) {
-          if (settings.soundEffects) playSuccessSound();
-          setSessionTotalCharsTyped(prev => prev + 1);
-          
-          const newText = typedText + expectedChar;
-          setTypedText(newText);
-          setCurrentStoryErrorChar(null);
+      if (typedChar === expectedChar) {
+        if (settings.soundEffects) playSuccessSound();
+        setSessionTotalCharsTyped(prev => prev + 1);
+        
+        const newText = typedText + expectedChar;
+        setTypedText(newText);
+        setCurrentStoryErrorChar(null);
 
-          if (newText === freeModeText) {
-            handleCompleteFreeMode();
-          }
-        } else {
-          if (settings.soundEffects) playErrorSound();
-          setSessionTotalErrors(prev => prev + 1);
-          setActiveSentenceErrors(prev => prev + 1);
-          setCurrentStoryErrorChar(typedChar);
+        if (newText === freeModeText) {
+          handleCompleteFreeMode();
         }
+      } else {
+        if (settings.soundEffects) playErrorSound();
+        setSessionTotalErrors(prev => prev + 1);
+        setActiveSentenceErrors(prev => prev + 1);
+        setCurrentStoryErrorChar(typedChar);
       }
       return;
     }
@@ -988,56 +1091,96 @@ export default function App() {
     setCursorLastMovedTime(Date.now());
 
     // Evaluate typing metrics
-    if (val.length > typedText.length) {
-      const typedChar = val[val.length - 1];
-      const expectedChar = currentSentence.french[typedText.length];
+    const expectedChar = (currentSentence.french[typedText.length] || "").normalize('NFC');
 
-      if (typedChar === expectedChar) {
-        // Success Click sound
-        if (settings.soundEffects) playSuccessSound();
-        setSessionTotalCharsTyped(prev => prev + 1);
-        
-        const newText = typedText + expectedChar;
-        setTypedText(newText);
-        setCurrentStoryErrorChar(null);
+    if (typedChar === expectedChar) {
+      // Success Click sound
+      if (settings.soundEffects) playSuccessSound();
+      setSessionTotalCharsTyped(prev => prev + 1);
+      
+      const newText = typedText + expectedChar;
+      setTypedText(newText);
+      setCurrentStoryErrorChar(null);
 
-        // Auto Advance Sentence Trigger
-        if (newText === currentSentence.french) {
-          handleAdvanceNextSentence();
-        }
-      } else {
-        // Error Buzz
-        if (settings.soundEffects) playErrorSound();
-        setSessionTotalErrors(prev => prev + 1);
-        setActiveSentenceErrors(prev => prev + 1);
-        setCurrentStoryErrorChar(typedChar);
-
-        // Identify the exact word that contains this error to count hardest words
-        const frenchWordsList = currentSentence.french.split(/\s+/);
-        // Find which word matches current character index (which is typedText.length)
-        const addedCharIndex = typedText.length;
-        let accumulatedLen = 0;
-        let foundWord = "";
-        for (const w of frenchWordsList) {
-          const start = accumulatedLen;
-          const end = accumulatedLen + w.length;
-          if (addedCharIndex >= start && addedCharIndex <= end) {
-            // Remove punctuation for clean keys
-            foundWord = w.toLowerCase().replace(/[.,!?;:()"']/g, "");
-            break;
-          }
-          accumulatedLen += w.length + 1; // account for spaces
-        }
-
-        if (foundWord) {
-          setWordMetrics(prev => ({
-            ...prev,
-            [foundWord]: {
-              errors: (prev[foundWord]?.errors || 0) + 1
-            }
-          }));
-        }
+      // Auto Advance Sentence Trigger
+      if (newText === currentSentence.french) {
+        handleAdvanceNextSentence();
       }
+    } else {
+      // Error Buzz
+      if (settings.soundEffects) playErrorSound();
+      setSessionTotalErrors(prev => prev + 1);
+      setActiveSentenceErrors(prev => prev + 1);
+      setCurrentStoryErrorChar(typedChar);
+
+      // Identify the exact word that contains this error to count hardest words
+      const frenchWordsList = currentSentence.french.split(/\s+/);
+      // Find which word matches current character index (which is typedText.length)
+      const addedCharIndex = typedText.length;
+      let accumulatedLen = 0;
+      let foundWord = "";
+      for (const w of frenchWordsList) {
+        const start = accumulatedLen;
+        const end = accumulatedLen + w.length;
+        if (addedCharIndex >= start && addedCharIndex <= end) {
+          // Remove punctuation for clean keys
+          foundWord = w.toLowerCase().replace(/[.,!?;:()"']/g, "");
+          break;
+        }
+        accumulatedLen += w.length + 1; // account for spaces
+      }
+
+      if (foundWord) {
+        setWordMetrics(prev => ({
+          ...prev,
+          [foundWord]: {
+            errors: (prev[foundWord]?.errors || 0) + 1
+          }
+        }));
+      }
+    }
+  };
+
+  const armCompositionReset = () => {
+    if (compositionTimeoutRef.current) clearTimeout(compositionTimeoutRef.current);
+    compositionTimeoutRef.current = window.setTimeout(() => {
+      isComposingRef.current = false;
+    }, 200);
+  };
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+    armCompositionReset();
+  };
+
+  const handleCompositionUpdate = () => {
+    isComposingRef.current = true;
+    armCompositionReset();
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    console.log("COMPOSITIONEND", JSON.stringify({ data: e.data }));
+    if (compositionTimeoutRef.current) clearTimeout(compositionTimeoutRef.current);
+    isComposingRef.current = false;
+    const composed = e.data;
+    if (composed) {
+      for (const ch of composed) {
+        processTypedChar(ch);
+      }
+    }
+  };
+
+  const handleBeforeInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const native = e.nativeEvent as InputEvent;
+    console.log("BEFOREINPUT", JSON.stringify({ inputType: native.inputType, data: native.data, isComposing: native.isComposing }));
+    e.preventDefault(); // textarea never mutates -> no desync
+    // If a dead-key composition is in progress, let compositionend handle it
+    if (isComposingRef.current) return;
+    if (native.inputType && native.inputType.startsWith('delete')) return; // backspace handled in keydown
+    const data = native.data;
+    if (!data) return;
+    for (const ch of data) {
+      processTypedChar(ch);
     }
   };
 
@@ -1198,12 +1341,8 @@ export default function App() {
   // ---------------------------------------------------------------------------
   const handleInsertAccentChar = (accentChar: string) => {
     if (!currentSentence) return;
-    const len = typedText.length;
-    // Append accentChar if it matches expected target character position
-    const targetExpected = currentSentence.french[len];
-    const newText = typedText + accentChar;
     
-    // Trigger typing block logic directly
+    // Trigger typing block logic directly (session-timer-start lines)
     if (sessionStartTime === null) {
       setSessionStartTime(Date.now());
     }
@@ -1213,30 +1352,24 @@ export default function App() {
     }
 
     setCursorLastMovedTime(Date.now());
-    setSessionTotalCharsTyped(prev => prev + 1);
 
-    if (accentChar === targetExpected) {
-      if (settings.soundEffects) playSuccessSound();
-    } else {
-      if (settings.soundEffects) playErrorSound();
-      setSessionTotalErrors(prev => prev + 1);
-      setActiveSentenceErrors(prev => prev + 1);
-    }
+    processTypedChar(accentChar);
 
-    setTypedText(newText);
-    
     // Restore focus to main textarea zone immediately
     setTimeout(() => {
       focusInputZone();
-      // Auto Advance if it hits parity
-      if (newText === currentSentence.french) {
-        handleAdvanceNextSentence();
-      }
     }, 40);
   };
 
   // Backspace key listener handled elegantly to enable correction
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    console.log("KEYDOWN", JSON.stringify({ key: e.key, code: e.code }));
+    if (e.key === " " || e.code === "Space") {
+      e.preventDefault();
+      processTypedChar(" ");
+      return;
+    }
+
     const IGNORED_KEYS = [
       'Shift', 'Alt', 'AltGr', 'Control', 'CapsLock', 
       'Meta', 'Dead', 'Process', 'AltGraph'
@@ -2119,12 +2252,136 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Card 4: Fluidité progressive (Flow) */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-teal-500 group-hover:bg-teal-400 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                      Sans limites
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">Cycle infini</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-teal-400 transition-colors">
+                    Fluidité progressive
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Une boucle de pratique infinie alternant mots courts, moyens, longs, puis phrases réelles.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => startDrillSession("flow")}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 5: Mots courts */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-sky-500/60 group-hover:bg-sky-500 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                      Endurant
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">+200 mots</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-sky-400 transition-colors">
+                    Mots courts
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Concentrez votre mémoire musculaire sur les petits mots quotidiens français de 2 à 5 lettres.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => startDrillSession("wordsShort")}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 6: Mots longs */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-indigo-500/60 group-hover:bg-indigo-400 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      Expert
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">+150 mots</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-indigo-400 transition-colors">
+                    Mots longs
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Mesurez-vous aux mots complexes ou littéraires de 10+ lettres pour asseoir vos positions AZERTY.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => startDrillSession("wordsLong")}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 7: Phrases complètes */}
+              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/60 group-hover:bg-emerald-500 transition-all duration-300" />
+                
+                <div>
+                  <div className="flex justify-between items-start mb-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Maîtrise
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">Générateur libre</span>
+                  </div>
+
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                    Phrases complètes
+                  </h3>
+                  <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
+                    Rédigez des phrases complètes, variées et dynamiques combinant verbes, sujets et objets français.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
+                  <button
+                    onClick={() => startDrillSession("phrases")}
+                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                  >
+                    COMMENCER <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
         )}
 
         {/* VIEW 2.5: INTERACTIVE TYPING MASTER AZERTY DRILL (LETTERS, ACCENTS, OR CALIBRATION) */}
-        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration") && (
+        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases") && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
             
             {/* Header / Meta / Progress marker */}
@@ -2147,6 +2404,14 @@ export default function App() {
                     ? `Calibration : Partie ${calibrationPart}` 
                     : practiceType === "accents" 
                     ? "Accents essentiels" 
+                    : practiceType === "flow"
+                    ? `Fluidité progressive (Ronde ${drillRound})`
+                    : practiceType === "wordsShort"
+                    ? `Mots courts (Ronde ${drillRound})`
+                    : practiceType === "wordsLong"
+                    ? `Mots longs (Ronde ${drillRound})`
+                    : practiceType === "phrases"
+                    ? `Phrases complètes (Ronde ${drillRound})`
                     : `Ronde ${drillRound}`
                   }
                 </span>
@@ -2160,27 +2425,33 @@ export default function App() {
               </div>
 
               {/* Stage Indicators */}
-              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-3">
-                {[1, 2, 3, 4].map((stageNum) => (
-                  <div key={stageNum} className="flex items-center gap-1.5 sm:gap-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                      drillStage === stageNum 
-                        ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" 
-                        : drillStage > stageNum 
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
-                        : "bg-white/5 text-zinc-500 border border-white/5"
-                    }`}>
-                      {stageNum}
+              {(practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow") ? (
+                <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-3">
+                  {[1, 2, 3, 4].map((stageNum) => (
+                    <div key={stageNum} className="flex items-center gap-1.5 sm:gap-2">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                        drillStage === stageNum 
+                          ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" 
+                          : drillStage > stageNum 
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
+                          : "bg-white/5 text-zinc-500 border border-white/5"
+                      }`}>
+                        {stageNum}
+                      </div>
+                      <span className={`text-[10px] sm:text-[11px] font-sans font-semibold uppercase tracking-wider ${
+                        drillStage === stageNum ? "text-white" : "text-zinc-500"
+                      }`}>
+                        {practiceType === "flow" ? (
+                          stageNum === 1 ? "Mots courts" : stageNum === 2 ? "Mots moyens" : stageNum === 3 ? "Mots longs" : "Phrases"
+                        ) : (
+                          stageNum === 1 ? "Touches" : stageNum === 2 ? "Combos courts" : stageNum === 3 ? "Combos longs" : "Mots"
+                        )}
+                      </span>
+                      {stageNum < 4 && <ChevronRight className="w-3 h-3 text-zinc-700 hidden sm:block" />}
                     </div>
-                    <span className={`text-[10px] sm:text-[11px] font-sans font-semibold uppercase tracking-wider ${
-                      drillStage === stageNum ? "text-white" : "text-zinc-500"
-                    }`}>
-                      {stageNum === 1 ? "Touches" : stageNum === 2 ? "Combos courts" : stageNum === 3 ? "Combos longs" : "Mots"}
-                    </span>
-                    {stageNum < 4 && <ChevronRight className="w-3 h-3 text-zinc-700 hidden sm:block" />}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : null}
 
               {/* Current sequence progression bar */}
               <div className="flex items-center gap-3 mt-3">
@@ -2429,8 +2700,11 @@ export default function App() {
             <textarea
               ref={inputRef}
               value={typedText}
-              onChange={handleTypeChange}
+              onBeforeInput={handleBeforeInput}
               onKeyDown={handleKeyDown}
+              onCompositionStart={handleCompositionStart}
+              onCompositionUpdate={handleCompositionUpdate}
+              onCompositionEnd={handleCompositionEnd}
               className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
               autoFocus
               placeholder="Frappez ici..."
@@ -2713,8 +2987,11 @@ export default function App() {
             <textarea
               ref={inputRef}
               value={typedText}
-              onChange={handleTypeChange}
+              onBeforeInput={handleBeforeInput}
               onKeyDown={handleKeyDown}
+              onCompositionStart={handleCompositionStart}
+              onCompositionUpdate={handleCompositionUpdate}
+              onCompositionEnd={handleCompositionEnd}
               className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
               autoFocus
               placeholder="Frappez ici..."
@@ -2822,8 +3099,11 @@ export default function App() {
               <textarea
                 ref={inputRef}
                 value={typedText}
-                onChange={handleTypeChange}
+                onBeforeInput={handleBeforeInput}
                 onKeyDown={handleKeyDown}
+                onCompositionStart={handleCompositionStart}
+                onCompositionUpdate={handleCompositionUpdate}
+                onCompositionEnd={handleCompositionEnd}
                 className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
                 autoFocus
                 placeholder="Zone de frappe active..."
@@ -3019,7 +3299,7 @@ export default function App() {
         )}
 
         {/* VIEW 3.5: DRILL LETTERS PERFORMANCE RESULTS */}
-        {currentScreen === "results" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration") && completedDrillDetails && (
+        {currentScreen === "results" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases") && completedDrillDetails && (
           <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
             
             {/* Header / Celebration Title */}
@@ -3033,6 +3313,14 @@ export default function App() {
                   <span>Vous avez terminé l'entraînement intensif des <span className="text-white font-medium">Lettres AZERTY</span>.</span>
                 ) : practiceType === "accents" ? (
                   <span>Vous avez terminé l'entraînement intensif des <span className="text-white font-medium">Accents essentiels</span>.</span>
+                ) : practiceType === "flow" ? (
+                  <span>Vous avez terminé l'entraînement de <span className="text-white font-medium">Fluidité progressive</span> et grimpé les échelons.</span>
+                ) : practiceType === "wordsShort" ? (
+                  <span>Vous avez terminé l'entraînement de <span className="text-white font-medium">Mots courts</span>.</span>
+                ) : practiceType === "wordsLong" ? (
+                  <span>Vous avez terminé l'entraînement de <span className="text-white font-medium">Mots longs</span>.</span>
+                ) : practiceType === "phrases" ? (
+                  <span>Vous avez terminé l'entraînement de <span className="text-white font-medium">Phrases complètes</span>.</span>
                 ) : (
                   <span>Vous avez terminé l'évaluation et la <span className="text-white font-medium">Calibration complète</span>.</span>
                 )}
@@ -3104,7 +3392,7 @@ export default function App() {
             {/* Actions panel */}
             <div className="flex flex-col sm:flex-row items-center gap-3 justify-center mt-4">
               <button 
-                onClick={() => startDrillSession(practiceType as "letters" | "accents" | "calibration")}
+                onClick={() => startDrillSession(practiceType as "letters" | "accents" | "calibration" | "flow" | "wordsShort" | "wordsLong" | "phrases")}
                 className="w-full sm:w-auto px-6 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/15 text-white border border-white/10 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Recommencer l'entraînement
