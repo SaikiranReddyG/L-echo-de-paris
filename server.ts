@@ -136,6 +136,53 @@ Return the result strictly as a JSON object adhering to this schema:
   }
 });
 
+// Single sentence translation endpoint
+app.post("/api/translate", async (req, res) => {
+  try {
+    const { sentence } = req.body;
+    if (!sentence || typeof sentence !== "string") {
+      res.status(400).json({ error: "sentence is required." });
+      return;
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      res.json({
+        content: [
+          {
+            text: `[English translation of: "${sentence}"]`
+          }
+        ]
+      });
+      return;
+    }
+
+    const ai = getGeminiClient();
+    const prompt = `Translate the following French sentence to natural English. 
+Return only the English translation, nothing else, no quotes, no explanation.
+
+French: ${sentence}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+    });
+
+    const translatedText = response.text ? response.text.trim() : "";
+    res.json({
+      content: [
+        {
+          text: translatedText
+        }
+      ]
+    });
+  } catch (error: any) {
+    console.error("Single translation server error:", error);
+    res.status(500).json({
+      error: error.message || "An unexpected translation failure occurred."
+    });
+  }
+});
+
 // Start server
 async function startServer() {
   // Vite integration

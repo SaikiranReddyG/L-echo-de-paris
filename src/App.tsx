@@ -1218,42 +1218,35 @@ export default function App() {
     setAddStoryLoading(true);
     setAddStoryError("");
     try {
-      // Compile sentences array to send to backend proxy
-      const sentencesText = newStorySentences.map(s => s.french).join("\n");
-      const res = await fetch("/api/translate-story", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newStoryTitle,
-          level: newStoryLevel,
-          text: sentencesText
-        })
-      });
+      const updated = [...newStorySentences];
+      for (let i = 0; i < updated.length; i++) {
+        const sentence = updated[i].french;
+        if (!sentence.trim()) continue;
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Server translation failure");
-      }
+        const res = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sentence })
+        });
 
-      // Check if response contains array or fallback placeholders
-      if (data.sentences && Array.isArray(data.sentences)) {
-        // Map elements back
-        const translated: Sentence[] = data.sentences.map((element: any, idx: number) => ({
-          french: element.french || newStorySentences[idx]?.french || "",
-          english: element.english || `[Translation of sentence ${idx + 1}]`
-        }));
-        setNewStorySentences(translated);
-        if (data.title) setNewStoryTitle(data.title);
-        if (data.level) setNewStoryLevel(data.level as StoryLevel);
+        if (!res.ok) {
+          throw new Error("Translation request failed");
+        }
+
+        const data = await res.json();
+        if (data && data.content && data.content[0] && typeof data.content[0].text === "string") {
+          const rawText = data.content[0].text;
+          const cleanedText = rawText.trim().replace(/^["']|["']$/g, "").trim();
+          updated[i] = {
+            ...updated[i],
+            english: cleanedText
+          };
+          setNewStorySentences([...updated]);
+        }
       }
     } catch (err: any) {
       console.warn("Translation client warning:", err);
-      // Give placeholder translation instructions
-      setNewStorySentences(prev => prev.map((s, index) => ({
-        ...s,
-        english: s.english || `[English translation of Sentence ${index + 1}]`
-      })));
-      setAddStoryError("AI Translation model key is offline. Standard placeholder English fields generated. Please edit them below manually.");
+      setAddStoryError("Une erreur est survenue lors de la traduction automatique.");
     } finally {
       setAddStoryLoading(false);
     }
