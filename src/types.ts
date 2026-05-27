@@ -17,6 +17,7 @@ export interface Story {
   sentences: Sentence[];
   createdAt: number;
   isBuiltIn: boolean;
+  fullTranslation?: string;
 }
 
 export interface SessionAttempt {
