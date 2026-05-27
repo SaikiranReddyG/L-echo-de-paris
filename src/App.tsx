@@ -27,7 +27,8 @@ import {
   Search,
   Check,
   Languages,
-  ArrowRight
+  ArrowRight,
+  Keyboard
 } from "lucide-react";
 import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt } from "./types";
 import { 
@@ -236,12 +237,16 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results">("library");
 
   // Custom Training state
-  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration">("story");
+  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free">("story");
   const [accentsPhase, setAccentsPhase] = useState<1 | 2>(1);
   const [accentTourIdx, setAccentTourIdx] = useState(0);
   const [tourFeedback, setTourFeedback] = useState<"success" | "error" | null>(null);
   const [calibrationPart, setCalibrationPart] = useState<1 | 2>(1);
   const [showCalibrationTransition, setShowCalibrationTransition] = useState(false);
+  
+  // Free Mode paste and active state variables
+  const [freeModeText, setFreeModeText] = useState("");
+  const [freeModeActive, setFreeModeActive] = useState(false);
   
   // DB Loaded States
   const [stories, setStories] = useState<Story[]>([]);
@@ -261,17 +266,22 @@ export default function App() {
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [typedText, setTypedText] = useState("");
+  const [currentStoryErrorChar, setCurrentStoryErrorChar] = useState<string | null>(null);
   const [isFullStoryVisible, setIsFullStoryVisible] = useState(false);
 
   // Sync state values to refs so that the async voice looping callback can read the most up-to-date state
   const currentScreenRef = useRef(currentScreen);
   const selectedStoryRef = useRef(selectedStory);
   const currentSentenceIndexRef = useRef(currentSentenceIndex);
+  const practiceTypeRef = useRef(practiceType);
+  const freeModeActiveRef = useRef(freeModeActive);
 
   useEffect(() => {
     currentScreenRef.current = currentScreen;
     selectedStoryRef.current = selectedStory;
     currentSentenceIndexRef.current = currentSentenceIndex;
+    practiceTypeRef.current = practiceType;
+    freeModeActiveRef.current = freeModeActive;
 
     // If we leave the practice screen, stop speaking immediately
     if (currentScreen !== "practice") {
@@ -279,7 +289,7 @@ export default function App() {
         window.speechSynthesis.cancel();
       }
     }
-  }, [currentScreen, selectedStory, currentSentenceIndex]);
+  }, [currentScreen, selectedStory, currentSentenceIndex, practiceType, freeModeActive]);
 
   // Active Typings Timing & Metrics tracking
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -465,6 +475,13 @@ export default function App() {
       const sentenceIndexAtStart = currentSentenceIndexRef.current;
 
       const shouldContinue = () => {
+        if (practiceTypeRef.current === "free") {
+          return (
+            currentScreenRef.current === "practice" &&
+            practiceTypeRef.current === "free" &&
+            freeModeActiveRef.current
+          );
+        }
         return (
           currentScreenRef.current === "practice" &&
           selectedStoryRef.current &&
@@ -913,8 +930,49 @@ export default function App() {
       return;
     }
     
+    if (practiceType === "free") {
+      if (!freeModeActive) return;
+
+      // Detect if this is the absolute first keypress of the story
+      if (sessionStartTime === null) {
+        setSessionStartTime(Date.now());
+      }
+      // Detect if first character of active text
+      if (sentenceStartTime === null) {
+        setSentenceStartTime(Date.now());
+        // Trigger voice read aloud the moment typing begins for free text
+        playSentenceAudio(freeModeText);
+      }
+
+      setCursorLastMovedTime(Date.now());
+
+      if (val.length > typedText.length) {
+        const typedChar = val[val.length - 1];
+        const expectedChar = freeModeText[typedText.length];
+
+        if (typedChar === expectedChar) {
+          if (settings.soundEffects) playSuccessSound();
+          setSessionTotalCharsTyped(prev => prev + 1);
+          
+          const newText = typedText + expectedChar;
+          setTypedText(newText);
+          setCurrentStoryErrorChar(null);
+
+          if (newText === freeModeText) {
+            handleCompleteFreeMode();
+          }
+        } else {
+          if (settings.soundEffects) playErrorSound();
+          setSessionTotalErrors(prev => prev + 1);
+          setActiveSentenceErrors(prev => prev + 1);
+          setCurrentStoryErrorChar(typedChar);
+        }
+      }
+      return;
+    }
+
     // Prevent typing further than sentence length
-    if (!currentSentence || val.length > currentSentence.french.length) return;
+    if (!currentSentence) return;
 
     // Detect if this is the absolute first keypress of the story
     if (sessionStartTime === null) {
@@ -930,23 +988,34 @@ export default function App() {
     setCursorLastMovedTime(Date.now());
 
     // Evaluate typing metrics
-    const addedCharIndex = val.length - 1;
-    if (addedCharIndex >= 0 && val.length > typedText.length) {
-      const typedChar = val[addedCharIndex];
-      const correctChar = currentSentence.french[addedCharIndex];
+    if (val.length > typedText.length) {
+      const typedChar = val[val.length - 1];
+      const expectedChar = currentSentence.french[typedText.length];
 
-      if (typedChar === correctChar) {
+      if (typedChar === expectedChar) {
         // Success Click sound
         if (settings.soundEffects) playSuccessSound();
+        setSessionTotalCharsTyped(prev => prev + 1);
+        
+        const newText = typedText + expectedChar;
+        setTypedText(newText);
+        setCurrentStoryErrorChar(null);
+
+        // Auto Advance Sentence Trigger
+        if (newText === currentSentence.french) {
+          handleAdvanceNextSentence();
+        }
       } else {
         // Error Buzz
         if (settings.soundEffects) playErrorSound();
         setSessionTotalErrors(prev => prev + 1);
         setActiveSentenceErrors(prev => prev + 1);
+        setCurrentStoryErrorChar(typedChar);
 
         // Identify the exact word that contains this error to count hardest words
         const frenchWordsList = currentSentence.french.split(/\s+/);
-        // Find which word matches current character index
+        // Find which word matches current character index (which is typedText.length)
+        const addedCharIndex = typedText.length;
         let accumulatedLen = 0;
         let foundWord = "";
         for (const w of frenchWordsList) {
@@ -970,18 +1039,6 @@ export default function App() {
         }
       }
     }
-
-    // Cumulative stats
-    if (val.length > typedText.length) {
-      setSessionTotalCharsTyped(prev => prev + 1);
-    }
-
-    setTypedText(val);
-
-    // Auto Advance Sentence Trigger
-    if (val === currentSentence.french) {
-      handleAdvanceNextSentence();
-    }
   };
 
   const handleAdvanceNextSentence = () => {
@@ -989,6 +1046,7 @@ export default function App() {
     
     // Reset individual sentence tracking variables
     setTypedText("");
+    setCurrentStoryErrorChar(null);
     setSentenceStartTime(null);
     setActiveSentenceErrors(0);
     setShowAccentTooltip(null);
@@ -1075,6 +1133,66 @@ export default function App() {
     }
   };
 
+  const handleCompleteFreeMode = () => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    const totalTimeSec = Math.max(1, Math.round(((Date.now() - (sessionStartTime || Date.now())) / 1000)));
+    const minutesElapsed = totalTimeSec / 60;
+    const correctChars = Math.max(0, sessionTotalCharsTyped - sessionTotalErrors);
+    const calculatedWpm = Math.max(1, Math.round((correctChars / 5) / minutesElapsed));
+    
+    // Accuracy %
+    const calculatedAccuracy = sessionTotalCharsTyped > 0 
+      ? Math.max(0, Math.min(100, Math.round(((sessionTotalCharsTyped - sessionTotalErrors) / sessionTotalCharsTyped) * 100)))
+      : 100;
+
+    const dummyAttempt: SessionAttempt = {
+      id: `free-attempt-${Date.now()}`,
+      storyId: "free-mode",
+      storyTitle: "Mode Libre",
+      date: Date.now(),
+      wpm: calculatedWpm,
+      accuracy: calculatedAccuracy,
+      errors: sessionTotalErrors,
+      duration: totalTimeSec,
+      hardestWords: []
+    };
+
+    setCompletedSessionDetails(dummyAttempt);
+    setCurrentScreen("results");
+  };
+
+  const handleStartFreeMode = (recommence: boolean) => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    
+    // Reset active typing states
+    setTypedText("");
+    setCurrentStoryErrorChar(null);
+    setSessionStartTime(null);
+    setSentenceStartTime(null);
+    setSessionTotalCharsTyped(0);
+    setSessionTotalErrors(0);
+    setActiveSentenceErrors(0);
+    setPracticeType("free");
+    setCompletedSessionDetails(null);
+    setCurrentScreen("practice");
+
+    if (recommence) {
+      setFreeModeActive(true);
+    } else {
+      setFreeModeText("");
+      setFreeModeActive(false);
+    }
+    
+    // Auto focus
+    setTimeout(() => {
+      focusInputZone();
+    }, 120);
+  };
+
   // ---------------------------------------------------------------------------
   // 4. Manual on-screen click inserter accent keys
   // ---------------------------------------------------------------------------
@@ -1119,6 +1237,25 @@ export default function App() {
 
   // Backspace key listener handled elegantly to enable correction
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const IGNORED_KEYS = [
+      'Shift', 'Alt', 'AltGr', 'Control', 'CapsLock', 
+      'Meta', 'Dead', 'Process', 'AltGraph'
+    ];
+
+    if (IGNORED_KEYS.includes(e.key)) return;
+
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      if (practiceType === "story" || practiceType === "free") {
+        if (currentStoryErrorChar !== null) {
+          setCurrentStoryErrorChar(null);
+        } else if (typedText.length > 0) {
+          setTypedText(prev => prev.slice(0, -1));
+        }
+      }
+      return;
+    }
+
     // Replay audio with custom keyboard shortcut Tab or Ctrl+Space
     if (e.key === "Tab") {
       e.preventDefault();
@@ -1166,6 +1303,7 @@ export default function App() {
     setSelectedStory(story);
     setCurrentSentenceIndex(0);
     setTypedText("");
+    setCurrentStoryErrorChar(null);
     setIsFullStoryVisible(false);
     
     // Reset Stats Counters
@@ -1223,14 +1361,26 @@ export default function App() {
         const sentence = updated[i].french;
         if (!sentence.trim()) continue;
 
-        const res = await fetch("/api/translate", {
+        let res;
+        const callApi = () => fetch("/api/translate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sentence })
         });
 
-        if (!res.ok) {
-          throw new Error("Translation request failed");
+        try {
+          res = await callApi();
+          if (!res.ok) {
+            throw new Error("Initial fetch not ok");
+          }
+        } catch (firstErr) {
+          console.warn("Retrying translation for:", sentence);
+          // Retry: if a single segment call fails, wait 1 second and try once more
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          res = await callApi();
+          if (!res.ok) {
+            throw new Error("Translation retry failed");
+          }
         }
 
         const data = await res.json();
@@ -1243,6 +1393,9 @@ export default function App() {
           };
           setNewStorySentences([...updated]);
         }
+
+        // Add 500ms delay between sequential calls
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err: any) {
       console.warn("Translation client warning:", err);
@@ -1380,10 +1533,15 @@ export default function App() {
           </h1>
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
-          {(currentScreen === "library" || currentScreen === "learn") && (
+          {(currentScreen === "library" || currentScreen === "learn" || (currentScreen === "practice" && practiceType === "free")) && (
             <div className="flex items-center gap-1.5 ml-4 border-l border-white/10 pl-4">
               <button
-                onClick={() => setCurrentScreen("library")}
+                onClick={() => {
+                  if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setCurrentScreen("library");
+                }}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                   currentScreen === "library"
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
@@ -1393,7 +1551,22 @@ export default function App() {
                 Bibliothèque
               </button>
               <button
-                onClick={() => setCurrentScreen("learn")}
+                onClick={() => handleStartFreeMode(false)}
+                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                  currentScreen === "practice" && practiceType === "free"
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : "text-zinc-400 hover:text-white border-transparent"
+                }`}
+              >
+                Mode Libre
+              </button>
+              <button
+                onClick={() => {
+                  if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setCurrentScreen("learn");
+                }}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer relative ${
                   currentScreen === "learn"
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
@@ -1529,6 +1702,13 @@ export default function App() {
 
               <div className="flex gap-3">
                 <button 
+                  onClick={() => handleStartFreeMode(false)}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black font-semibold text-xs uppercase tracking-wider rounded-lg transition-all hover:scale-102 cursor-pointer shadow-lg"
+                >
+                  <Keyboard className="w-4 h-4" /> Mode Libre
+                </button>
+
+                <button 
                   id="btn-add-story"
                   onClick={() => {
                     setNewStoryStep(1);
@@ -1537,7 +1717,7 @@ export default function App() {
                     setNewStorySentences([]);
                     setIsAddStoryOpen(true);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black font-semibold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#1f2026] hover:bg-zinc-800 text-zinc-350 border border-white/5 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Ajouter une histoire
                 </button>
@@ -1626,6 +1806,50 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Visual Premium Injected Card for Mode Libre */}
+                {searchQuery === "" && (
+                  <div 
+                    onClick={() => handleStartFreeMode(false)}
+                    className="group flex flex-col justify-between bg-gradient-to-b from-zinc-900/60 to-zinc-950/60 hover:from-emerald-500/[0.02] hover:to-zinc-950/90 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)]"
+                  >
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/70" />
+
+                    <div>
+                      <div className="flex justify-between items-start gap-4 mb-3">
+                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Personnalisé
+                        </span>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/80 font-mono">
+                          <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                          <span>Sans limites</span>
+                        </div>
+                      </div>
+
+                      <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors flex items-center gap-2">
+                        <Keyboard className="w-4 h-4 text-emerald-400" /> Mode Libre Actif
+                      </h3>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed italic pr-4 mb-4 font-serif">
+                        "Collez n'importe quel contenu ou texte français personnalisé, écoutez la lecture audio complète en boucle et pratiquez librement."
+                      </p>
+                    </div>
+
+                    <div className="pt-4 border-t border-emerald-500/10 flex items-center justify-between mt-4">
+                      <span className="text-[11px] text-emerald-400/60 font-medium font-mono">Option Intégrée</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartFreeMode(false);
+                        }}
+                        className="bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
+                      >
+                        Ouvrir <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {filteredStories.map((story) => {
                   const pb = personalBestRecords[story.id];
                   const sentencesCount = story.sentences.length;
@@ -2214,6 +2438,290 @@ export default function App() {
           </div>
         )}
 
+        {currentScreen === "practice" && practiceType === "free" && (
+          <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
+            
+            {/* Header / Meta */}
+            <div className="flex flex-col items-center relative gap-2 font-sans">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => {
+                    if ("speechSynthesis" in window) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setCurrentScreen("library");
+                  }}
+                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                >
+                  ← Retour à la bibliothèque
+                </button>
+                <div className="h-4 w-px bg-white/10" />
+                <span className="text-xs font-bold text-zinc-400">Mode Libre — Saisie libre du Français</span>
+              </div>
+            </div>
+
+            {/* TWO STACKED BOXES OF EQUAL HEIGHT */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              
+              {/* Box 1: Left/Top box — French text display */}
+              <div className="flex flex-col h-[280px]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
+                    Texte Source Français (Top Box)
+                  </span>
+                  {freeModeActive && (
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-sans border border-emerald-500/20">
+                      Verrouillé pour saisie
+                    </span>
+                  )}
+                </div>
+                
+                {!freeModeActive ? (
+                  <textarea
+                    value={freeModeText}
+                    onChange={(e) => setFreeModeText(e.target.value)}
+                    placeholder="Collez votre texte français ici..."
+                    className="w-full h-full flex-1 p-5 bg-[#111216] border border-white/5 focus:border-emerald-500/40 rounded-2xl text-zinc-200 text-sm font-serif leading-relaxed focus:outline-none placeholder-zinc-650 resize-none transition-all scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+                  />
+                ) : (
+                  <div 
+                    onClick={focusInputZone}
+                    className="w-full h-full flex-1 p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto text-zinc-200 text-sm leading-relaxed font-serif relative cursor-text text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+                  >
+                    {freeModeText.split("").map((expectedChar, index) => {
+                      let charClass = "text-zinc-600 font-normal";
+                      let borderClass = "";
+                      if (index < typedText.length) {
+                        charClass = "text-emerald-500/60 font-normal";
+                      } else if (index === typedText.length) {
+                        charClass = "text-white font-bold bg-white/10 rounded px-0.5 animate-pulse";
+                        borderClass = "border-l-2 border-emerald-400";
+                      }
+                      return (
+                        <span key={index} className={`relative whitespace-pre-wrap ${charClass} ${borderClass}`}>
+                          {expectedChar}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Box 2: Right/Bottom box — typing zone */}
+              <div 
+                onClick={focusInputZone}
+                className="flex flex-col h-[280px] cursor-text"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
+                    Zone d'Écriture (Bottom Box)
+                  </span>
+                  {freeModeActive && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFreeModeActive(false);
+                        setTypedText("");
+                        setCurrentStoryErrorChar(null);
+                        setSessionStartTime(null);
+                        setSentenceStartTime(null);
+                        setSessionTotalCharsTyped(0);
+                        setSessionTotalErrors(0);
+                        setActiveSentenceErrors(0);
+                        if ("speechSynthesis" in window) {
+                          window.speechSynthesis.cancel();
+                        }
+                      }}
+                      className="text-[10px] text-zinc-500 hover:text-white underline cursor-pointer font-sans"
+                    >
+                      Effacer / Modifier le texte
+                    </button>
+                  )}
+                </div>
+                
+                <div className="w-full h-full flex-1 p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto relative text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                  {!freeModeActive ? (
+                    <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4 text-center px-4">
+                      <p className="text-xs italic font-serif leading-relaxed">
+                        Collez ou écrivez un texte en français à gauche, puis cliquez sur le bouton ci-dessous pour lancer la session de saisie.
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (freeModeText.trim()) {
+                            setFreeModeActive(true);
+                            setTypedText("");
+                            setCurrentStoryErrorChar(null);
+                            setSessionStartTime(null);
+                            setSentenceStartTime(null);
+                            setSessionTotalCharsTyped(0);
+                            setSessionTotalErrors(0);
+                            setActiveSentenceErrors(0);
+                            setTimeout(() => focusInputZone(), 120);
+                          }
+                        }}
+                        disabled={!freeModeText.trim()}
+                        className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-500 disabled:cursor-not-allowed text-black font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer hover:scale-102"
+                      >
+                        <Play className="w-4 h-4 fill-current" /> Commencer
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-[#3f404d] text-sm leading-relaxed font-serif relative">
+                      {freeModeText.split("").map((expectedChar, index) => {
+                        let charClass = "text-[#3f404d]"; // Future text
+                        let borderClass = "";
+
+                        if (index < typedText.length) {
+                          charClass = "text-emerald-400 font-normal";
+                        } else if (index === typedText.length) {
+                          if (currentStoryErrorChar !== null) {
+                            charClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10";
+                            borderClass = "animate-pulse border-l-2 border-rose-500";
+                          } else {
+                            charClass = "text-white font-medium bg-white/10 rounded px-0.5";
+                            borderClass = "animate-pulse border-l-2 border-emerald-400";
+                          }
+                        }
+
+                        return (
+                          <span key={index} className={`relative whitespace-pre-wrap ${charClass} ${borderClass}`}>
+                            {expectedChar}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {freeModeActive && (
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest flex items-center justify-center gap-2 mt-2">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></div>
+                <span>Mode miroir actif. Cliquez sur l'une des boîtes si vous perdez le focus.</span>
+              </div>
+            )}
+
+            {/* AZERTY Keyboard Reference Block - Always Visible */}
+            <div className="max-w-3xl w-full mx-auto flex flex-col items-center mt-3 animate-fade-in">
+              <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans mb-3">
+                Visualisation du Clavier AZERTY
+              </span>
+
+              <div className="w-full bg-[#111216] border border-white/5 rounded-2xl p-4 flex flex-col gap-2 overflow-x-auto select-none scrollbar-thin">
+                {AZERTY_ROWS.map((row, rIdx) => (
+                  <div key={rIdx} className="flex justify-center gap-1.5 min-w-max">
+                    {row.map((keyObj, kIdx) => {
+                      if (keyObj.isSpecial) {
+                        return (
+                          <div 
+                            key={kIdx} 
+                            className={`h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 select-none uppercase ${keyObj.width || "w-12"}`}
+                          >
+                            {keyObj.label}
+                          </div>
+                        );
+                      }
+                      const isAccent = ["é", "è", "à", "ç", "ù", "^"].includes(keyObj.main);
+                      return (
+                        <div 
+                          key={kIdx} 
+                          className={`w-10 h-11 flex-shrink-0 relative bg-zinc-900 rounded-lg flex items-center justify-center pt-2 select-none ${
+                            isAccent 
+                              ? "border border-emerald-500/30 bg-emerald-500/[0.02]" 
+                              : "border border-white/5"
+                          }`}
+                        >
+                          {keyObj.sub && (
+                            <span className="absolute top-1 left-1.5 text-[9px] font-medium text-zinc-500">
+                              {keyObj.sub}
+                            </span>
+                          )}
+                          <span className={`text-sm font-semibold ${isAccent ? "text-emerald-300 font-bold" : "text-zinc-200"}`}>
+                            {keyObj.main}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                <div className="flex justify-center gap-1.5 min-w-max mt-0.5">
+                  <div className="w-12 sm:w-16 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                    CTRL
+                  </div>
+                  <div className="w-10 sm:w-12 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                    ALT
+                  </div>
+                  <div className="w-64 sm:w-80 h-11 bg-zinc-900 border border-white/5 rounded-lg flex items-center justify-center text-[9px] font-bold text-zinc-500 uppercase select-none">
+                    ESPACE
+                  </div>
+                  <div className="w-10 sm:w-12 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                    ALT GR
+                  </div>
+                  <div className="w-12 sm:w-16 h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 uppercase select-none">
+                    CTRL
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Controls Speed and Playback Footer */}
+            <div className="h-20 border-t border-white/5 bg-[#0a0a0b] flex items-center justify-between px-6 sm:px-12 -mx-4 sm:-mx-8">
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-xl border border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-zinc-500">Vitesse :</span>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => handleUpdateSettings({ ...settings, audioSpeed: "slow" })}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-colors cursor-pointer ${
+                        settings.audioSpeed === "slow" 
+                          ? "bg-[#27272a] text-amber-400 border border-amber-500/20" 
+                          : "text-zinc-500 hover:text-white"
+                      }`}
+                    >
+                      LENT
+                    </button>
+                    <button 
+                      onClick={() => handleUpdateSettings({ ...settings, audioSpeed: "normal" })}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-colors cursor-pointer ${
+                        settings.audioSpeed === "normal" 
+                          ? "bg-white/10 text-white" 
+                          : "text-zinc-500 hover:text-white"
+                      }`}
+                    >
+                      NORMAL
+                    </button>
+                  </div>
+                </div>
+
+                {freeModeActive && (
+                  <button
+                    onClick={() => playSentenceAudio(freeModeText)}
+                    className="p-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" /> Écouter
+                  </button>
+                )}
+              </div>
+
+              <div className="text-zinc-500 font-mono text-[10px] tracking-wider uppercase">
+                {freeModeActive ? `${typedText.length} / ${freeModeText.length} car.` : "Saisie inactive"}
+              </div>
+            </div>
+
+            {/* Hidden Input field to collect typing stroke inputs */}
+            <textarea
+              ref={inputRef}
+              value={typedText}
+              onChange={handleTypeChange}
+              onKeyDown={handleKeyDown}
+              className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
+              autoFocus
+              placeholder="Frappez ici..."
+            />
+          </div>
+        )}
+
         {currentScreen === "practice" && practiceType === "story" && selectedStory && currentSentence && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-8 mt-4">
             
@@ -2281,8 +2789,13 @@ export default function App() {
                       }
                     } else if (index === typedText.length) {
                       // Active typing position
-                      charClass = "text-white font-medium bg-white/10 rounded px-0.5";
-                      borderClass = "animate-pulse border-l-2 border-emerald-400";
+                      if (currentStoryErrorChar !== null) {
+                        charClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10"; // errored
+                        borderClass = "animate-pulse border-l-2 border-rose-500";
+                      } else {
+                        charClass = "text-white font-medium bg-white/10 rounded px-0.5";
+                        borderClass = "animate-pulse border-l-2 border-emerald-400";
+                      }
                     }
 
                     return (
@@ -2620,6 +3133,78 @@ export default function App() {
                 className="w-full sm:w-auto px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center transition-all cursor-pointer font-sans"
               >
                 Retourner aux exercices
+              </button>
+            </div>
+
+          </div>
+        )}
+
+        {/* VIEW 3b: PERFORMANCE RESULTS REPORT & SESSION SUMMARY FOR FREE MODE */}
+        {currentScreen === "results" && practiceType === "free" && completedSessionDetails && (
+          <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
+            
+            {/* Header / Celebration Title */}
+            <div className="text-center flex flex-col items-center gap-2">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-2 animate-bounce">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Session Libre Complétée !</h2>
+              <p className="text-sm text-zinc-400 max-w-md">
+                Félicitations ! Vous avez terminé avec succès la saisie de votre texte personnalisé.
+              </p>
+            </div>
+
+            {/* Grid Metrics Report */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Vitesse</span>
+                <span className="text-3xl font-mono text-white mt-1 leading-none">{completedSessionDetails.wpm}</span>
+                <span className="text-[10px] text-zinc-500 mt-1">mots par minute</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Précision</span>
+                <span className="text-3xl font-mono text-emerald-400 mt-1 leading-none">{completedSessionDetails.accuracy}%</span>
+                <span className="text-[10px] text-zinc-500 mt-1">frappes correctes</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Erreurs</span>
+                <span className="text-3xl font-mono text-rose-500 mt-1 leading-none">{completedSessionDetails.errors}</span>
+                <span className="text-[10px] text-zinc-500 mt-1">frappes manquées</span>
+              </div>
+              <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Temps</span>
+                <span className="text-3xl font-mono text-amber-400 mt-1 leading-none">
+                  {(() => {
+                    const m = Math.floor(completedSessionDetails.duration / 60);
+                    const s = completedSessionDetails.duration % 60;
+                    return m > 0 ? `${m}m` : `${s}s`;
+                  })()}
+                </span>
+                <span className="text-[10px] text-zinc-500 mt-1">durée de l'exercice</span>
+              </div>
+            </div>
+
+            {/* Navigation options / next run actions */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 justify-center mt-4">
+              <button 
+                onClick={() => handleStartFreeMode(true)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/15 text-white border border-white/10 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Recommencer
+              </button>
+              
+              <button 
+                onClick={() => handleStartFreeMode(false)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                Nouveau texte <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button 
+                onClick={() => setCurrentScreen("library")}
+                className="w-full sm:w-auto px-6 py-2.5 bg-[#111216] hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center transition-all cursor-pointer"
+              >
+                Retourner à la bibliothèque
               </button>
             </div>
 
