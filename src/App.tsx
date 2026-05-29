@@ -30,7 +30,7 @@ import {
   ArrowRight,
   Keyboard
 } from "lucide-react";
-import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson } from "./types";
+import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, GlossaryEntry } from "./types";
 import { 
   initDB, 
   getStories, 
@@ -52,6 +52,7 @@ import {
 import { playSuccessSound, playErrorSound } from "./utils/sound";
 import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
 import { generateSentence } from "./data/sentenceGenerator";
+import { GlossaryPanel, parseGlossaryStr } from "./components/GlossaryPanel";
 
 // Accent typing QWERTY combinations lookup helper
 const ACCENT_HINTS: { [key: string]: { char: string; qwerty: string } } = {
@@ -252,6 +253,9 @@ export default function App() {
   // Free Mode paste and active state variables
   const [freeModeText, setFreeModeText] = useState("");
   const [freeModeActive, setFreeModeActive] = useState(false);
+  const [freeModeGlossary, setFreeModeGlossary] = useState<GlossaryEntry[]>([]);
+  const [freeModeTranslation, setFreeModeTranslation] = useState<string>("");
+  const [freeModeTranslationExpanded, setFreeModeTranslationExpanded] = useState<boolean>(false);
   
   // DB Loaded States
   const [stories, setStories] = useState<Story[]>([]);
@@ -275,9 +279,11 @@ export default function App() {
   const [lessonTitle, setLessonTitle] = useState("");
   const [lessonText, setLessonText] = useState("");
   const [lessonError, setLessonError] = useState<string | null>(null);
+  const [glossaryExpanded, setGlossaryExpanded] = useState(true);
 
   // Current Working Session State
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+  const [sentenceErrorFlash, setSentenceErrorFlash] = useState<boolean>(false);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [typedText, setTypedText] = useState("");
   const [currentStoryErrorChar, setCurrentStoryErrorChar] = useState<string | null>(null);
@@ -350,6 +356,7 @@ export default function App() {
   const [newStoryTitle, setNewStoryTitle] = useState("");
   const [newStoryLevel, setNewStoryLevel] = useState<StoryLevel>("beginner");
   const [newStoryRawText, setNewStoryRawText] = useState("");
+  const [newStoryGlossary, setNewStoryGlossary] = useState("");
   const [newStoryTranslation, setNewStoryTranslation] = useState("");
   const [addStoryError, setAddStoryError] = useState("");
 
@@ -469,6 +476,7 @@ export default function App() {
     const sentencesIndex = pastedText.indexOf("#SENTENCES");
     const paragraphIndex = pastedText.indexOf("#PARAGRAPH");
     const translationIndex = pastedText.indexOf("#TRANSLATION");
+    const glossaryIndex = pastedText.indexOf("#GLOSSARY");
 
     if (wordsIndex === -1) {
       return { lesson: null, error: "La section #WORDS est manquante dans le texte collé." };
@@ -488,6 +496,9 @@ export default function App() {
     if (translationIndex !== -1) {
       markers.push({ label: "#TRANSLATION", index: translationIndex });
     }
+    if (glossaryIndex !== -1) {
+      markers.push({ label: "#GLOSSARY", index: glossaryIndex });
+    }
 
     markers.sort((a, b) => a.index - b.index);
 
@@ -503,6 +514,7 @@ export default function App() {
     const sentencesStr = sections["#SENTENCES"] || "";
     const paragraph = sections["#PARAGRAPH"] || "";
     const translation = sections["#TRANSLATION"] || "";
+    const glossaryStr = sections["#GLOSSARY"] || "";
 
     const words = wordsStr
       .split(/,|\n/)
@@ -513,6 +525,8 @@ export default function App() {
       .split(/\n/)
       .map(s => s.trim())
       .filter(s => s.length > 0);
+
+    const glossary = parseGlossaryStr(glossaryStr);
 
     if (words.length === 0) {
       return { lesson: null, error: "La section #WORDS est vide ou mal formatée." };
@@ -530,9 +544,55 @@ export default function App() {
         words,
         sentences,
         paragraph,
-        translation
+        translation,
+        glossary: glossaryIndex !== -1 ? glossary : []
       }
     };
+  };
+
+  const parsePastedContent = (rawText: string): { glossary: GlossaryEntry[]; paragraph: string; translation: string } => {
+    let glossary: GlossaryEntry[] = [];
+    let paragraph = rawText;
+    let translation = "";
+
+    const glossaryIndex = rawText.indexOf("#GLOSSARY");
+    const paragraphIndex = rawText.indexOf("#PARAGRAPH");
+    const sentencesIndex = rawText.indexOf("#SENTENCES");
+    const translationIndex = rawText.indexOf("#TRANSLATION");
+
+    const markers: { label: string; index: number }[] = [];
+    if (glossaryIndex !== -1) markers.push({ label: "#GLOSSARY", index: glossaryIndex });
+    if (paragraphIndex !== -1) markers.push({ label: "#PARAGRAPH", index: paragraphIndex });
+    if (sentencesIndex !== -1) markers.push({ label: "#SENTENCES", index: sentencesIndex });
+    if (translationIndex !== -1) markers.push({ label: "#TRANSLATION", index: translationIndex });
+
+    if (markers.length > 0) {
+      markers.sort((a, b) => a.index - b.index);
+      const sections: { [key: string]: string } = {};
+      for (let i = 0; i < markers.length; i++) {
+        const start = markers[i].index + markers[i].label.length;
+        const end = (i + 1 < markers.length) ? markers[i + 1].index : rawText.length;
+        sections[markers[i].label] = rawText.substring(start, end).trim();
+      }
+
+      if (sections["#GLOSSARY"]) {
+        glossary = parseGlossaryStr(sections["#GLOSSARY"]);
+      }
+      
+      if (sections["#PARAGRAPH"]) {
+        paragraph = sections["#PARAGRAPH"];
+      } else if (sections["#SENTENCES"]) {
+        paragraph = sections["#SENTENCES"];
+      } else {
+        paragraph = rawText;
+      }
+
+      if (sections["#TRANSLATION"]) {
+        translation = sections["#TRANSLATION"];
+      }
+    }
+
+    return { glossary, paragraph, translation };
   };
 
   // Helper utility to reload library list
@@ -980,6 +1040,43 @@ export default function App() {
     return selectedStory.sentences[currentSentenceIndex];
   }, [selectedStory, currentSentenceIndex]);
 
+  // Dynamic selector for current target word being typed across all practice modes
+  const currentTargetWord = useMemo(() => {
+    if (practiceType === "lesson") {
+      return drillItems[drillItemIndex] || "";
+    }
+    if (practiceType === "story" && currentSentence) {
+      const text = currentSentence.french;
+      const idx = typedText.length;
+      const words = text.split(/\s+/);
+      let charCount = 0;
+      for (const word of words) {
+        const start = text.indexOf(word, charCount);
+        const end = start + word.length;
+        if (idx >= start && idx <= end + 1) {
+          return word;
+        }
+        charCount = end;
+      }
+      return "";
+    }
+    if (practiceType === "free" && freeModeText) {
+      const idx = typedText.length;
+      const words = freeModeText.split(/\s+/);
+      let charCount = 0;
+      for (const word of words) {
+        const start = freeModeText.indexOf(word, charCount);
+        const end = start + word.length;
+        if (idx >= start && idx <= end + 1) {
+          return word;
+        }
+        charCount = end;
+      }
+      return "";
+    }
+    return "";
+  }, [practiceType, drillItems, drillItemIndex, currentSentence, freeModeText, typedText]);
+
   const computedFullTranslation = useMemo(() => {
     if (!selectedStory) return "";
     if (selectedStory.fullTranslation) return selectedStory.fullTranslation;
@@ -1392,7 +1489,6 @@ export default function App() {
       if (settings.soundEffects) playErrorSound();
       setSessionTotalErrors(prev => prev + 1);
       setActiveSentenceErrors(prev => prev + 1);
-      setCurrentStoryErrorChar(typedChar);
 
       // Identify the exact word that contains this error to count hardest words
       const frenchWordsList = currentSentence.french.split(/\s+/);
@@ -1419,6 +1515,14 @@ export default function App() {
           }
         }));
       }
+
+      // Change 2: Reset the entire sentence typed progress on wrong letter
+      setTypedText("");
+      setCurrentStoryErrorChar(null);
+
+      // Brief red flash on the whole sentence display for ~200ms
+      setSentenceErrorFlash(true);
+      setTimeout(() => setSentenceErrorFlash(false), 200);
     }
   };
 
@@ -1778,9 +1882,12 @@ export default function App() {
       return;
     }
 
+    const parsed = parsePastedContent(newStoryRawText);
+    const targetParagraph = parsed.paragraph;
+
     // Split text by punctuation marks . ! ?
     const segmentRegex = /(?<=[.!?])\s+/;
-    const splitSentences = newStoryRawText
+    const splitSentences = targetParagraph
       .split(segmentRegex)
       .map(s => s.trim())
       .filter(s => s.length > 2);
@@ -1795,6 +1902,13 @@ export default function App() {
       english: "" // Backward compatibility for built-in/old structures
     }));
 
+    let glossaryEntries: GlossaryEntry[] | undefined = undefined;
+    if (parsed.glossary && parsed.glossary.length > 0) {
+      glossaryEntries = parsed.glossary;
+    } else if (newStoryGlossary.trim()) {
+      glossaryEntries = parseGlossaryStr(newStoryGlossary);
+    }
+
     const createdStory: Story = {
       id: `custom-story-${Date.now()}`,
       title: newStoryTitle.trim(),
@@ -1802,7 +1916,8 @@ export default function App() {
       sentences: sentences,
       createdAt: Date.now(),
       isBuiltIn: false,
-      fullTranslation: newStoryTranslation.trim() || undefined
+      fullTranslation: newStoryTranslation.trim() || parsed.translation || undefined,
+      glossary: glossaryEntries
     };
 
     try {
@@ -1813,6 +1928,7 @@ export default function App() {
       setNewStoryTitle("");
       setNewStoryLevel("beginner");
       setNewStoryRawText("");
+      setNewStoryGlossary("");
       setNewStoryTranslation("");
       setIsAddStoryOpen(false);
       setAddStoryError("");
@@ -1890,26 +2006,24 @@ export default function App() {
     : 0;
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#0c0d10] text-[#e2e2e2] font-sans antialiased relative overflow-hidden select-none">
+    <div className="flex flex-col min-h-screen bg-transparent text-[#e2e2e2] font-sans antialiased relative overflow-hidden select-none">
       
-      {/* Subtle Classic grid background texture */}
-      <div 
-        className="absolute inset-0 pointer-events-none opacity-[0.035]" 
-        style={{ 
-          backgroundImage: "radial-gradient(#ffffff 1.5px, transparent 0)", 
-          backgroundSize: "40px 40px" 
-        }}
-      />
-
       {/* -----------------------------------------------------------------------
           TOP NAVIGATION HEADER
           ----------------------------------------------------------------------- */}
-      <nav id="nav-top" className="h-16 border-b border-white/5 flex items-center justify-between px-6 sm:px-8 bg-[#111216] relative z-10">
+      <nav id="nav-top" className="h-16 border-b border-white/5 flex items-center justify-between px-6 sm:px-8 bg-[#111216]/90 relative z-10">
         <div className="flex items-center gap-3">
-          <Languages className="w-5 h-5 text-emerald-400" />
-          <h1 className="text-base sm:text-lg font-semibold tracking-tight text-white cursor-pointer hover:opacity-85" onClick={() => setCurrentScreen("library")}>
-            L’Écho de Paris <span className="text-xs text-zinc-500 font-normal">French Typing</span>
-          </h1>
+          <Languages className="w-5 h-5 text-burgundy" />
+          <div className="flex flex-col select-none leading-none">
+            <span 
+              onClick={() => setCurrentScreen("library")}
+              className="text-lg sm:text-xl font-serif italic font-bold tracking-wide text-white cursor-pointer hover:opacity-85 border-b-2 border-double border-burgundy/30 pb-0.5 inline-block"
+            >
+              L'Écho de Paris
+            </span>
+            <span className="text-[10px] text-zinc-500 font-sans tracking-widest uppercase mt-0.5">French Typing</span>
+          </div>
+          
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
           {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free")) && (
@@ -1923,7 +2037,7 @@ export default function App() {
                 }}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                   currentScreen === "library"
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
                     : "text-zinc-400 hover:text-white border-transparent"
                 }`}
               >
@@ -1933,7 +2047,7 @@ export default function App() {
                 onClick={() => handleStartFreeMode(false)}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                   currentScreen === "practice" && practiceType === "free"
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
                     : "text-zinc-400 hover:text-white border-transparent"
                 }`}
               >
@@ -1948,13 +2062,13 @@ export default function App() {
                 }}
                 className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer relative ${
                   currentScreen === "learn" || currentScreen === "lesson-setup"
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
                     : "text-zinc-400 hover:text-white border-transparent"
                 }`}
               >
                 Apprendre
                 {!settings.calibrationComplete && !settings.lettersComplete && (
-                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-burgundy-hover rounded-full" />
                 )}
               </button>
             </div>
@@ -1962,7 +2076,7 @@ export default function App() {
 
           {currentScreen === "practice" && selectedStory && (
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase border ml-2 ${
-              selectedStory.level === "beginner" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+              selectedStory.level === "beginner" ? "bg-burgundy-soft text-burgundy border-burgundy-border" :
               selectedStory.level === "easy" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
               "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
             }`}>
@@ -2005,7 +2119,7 @@ export default function App() {
             </div>
           ) : (
             <div className="hidden sm:flex text-xs text-zinc-400 gap-2 items-center mr-4">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <TrendingUp className="w-3.5 h-3.5 text-burgundy" />
               <span>{sessions.length} histoires complétées</span>
             </div>
           )}
@@ -2037,9 +2151,9 @@ export default function App() {
 
             {/* Onboarding Calibration Banner */}
             {!settings.calibrationComplete && !settings.bannerDismissed && (
-              <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in mb-2 col-span-full">
+              <div className="w-full bg-burgundy-soft border border-burgundy-border rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in mb-2 col-span-full">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-sans">
+                  <div className="w-8 h-8 rounded-full bg-burgundy-soft flex items-center justify-center text-burgundy font-sans">
                     ✨
                   </div>
                   <div>
@@ -2062,7 +2176,7 @@ export default function App() {
                     onClick={() => {
                       setCurrentScreen("learn");
                     }}
-                    className="px-4 py-1.5 text-xs font-bold text-black bg-emerald-400 hover:bg-emerald-500 rounded-lg shadow-lg flex items-center gap-1 transition-all hover:scale-105 cursor-pointer font-sans"
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-burgundy hover:bg-burgundy-hover rounded-lg shadow-lg flex items-center gap-1 transition-all hover:scale-105 cursor-pointer font-sans"
                   >
                     Aller à Apprendre <ChevronRight className="w-3.5 h-3.5" />
                   </button>
@@ -2073,7 +2187,7 @@ export default function App() {
             {/* Header Display Board */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Bibliothèque d'Exercices</h2>
+                <h2 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">Bibliothèque d'Exercices</h2>
                 <p className="text-sm text-zinc-400 mt-1 max-w-xl">
                   Pratiquez la dactylographie française avec des récits littéraires authentiques. Améliorez votre vitesse d'écriture et maîtrisez tous les accents orthographiques requis.
                 </p>
@@ -2082,7 +2196,7 @@ export default function App() {
               <div className="flex gap-3">
                 <button 
                   onClick={() => handleStartFreeMode(false)}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black font-semibold text-xs uppercase tracking-wider rounded-lg transition-all hover:scale-102 cursor-pointer shadow-lg"
+                  className="flex items-center gap-2 px-4 py-2 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-all hover:scale-102 cursor-pointer shadow-lg"
                 >
                   <Keyboard className="w-4 h-4" /> Mode Libre
                 </button>
@@ -2114,7 +2228,7 @@ export default function App() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Précision Moyenne</span>
-                  <span className="text-xl sm:text-2xl font-mono text-emerald-400 mt-1">
+                  <span className="text-xl sm:text-2xl font-mono text-burgundy mt-1">
                     {Math.round(sessions.reduce((acc, s) => acc + s.accuracy, 0) / sessions.length)}%
                   </span>
                 </div>
@@ -2189,24 +2303,24 @@ export default function App() {
                 {searchQuery === "" && (
                   <div 
                     onClick={() => handleStartFreeMode(false)}
-                    className="group flex flex-col justify-between bg-gradient-to-b from-zinc-900/60 to-zinc-950/60 hover:from-emerald-500/[0.02] hover:to-zinc-950/90 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)]"
+                    className="group flex flex-col justify-between bg-gradient-to-b from-zinc-900/60 to-zinc-950/60 hover:from-[rgba(123,30,43,0.02)] hover:to-zinc-950/90 border border-burgundy-border hover:border-burgundy/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)]"
                   >
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/70" />
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/70" />
 
                     <div>
                       <div className="flex justify-between items-start gap-4 mb-3">
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-burgundy-soft text-burgundy border border-burgundy-border">
                           Personnalisé
                         </span>
 
-                        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/80 font-mono">
+                        <div className="flex items-center gap-1.5 text-[11px] text-burgundy/80 font-mono">
                           <Sparkles className="w-3.5 h-3.5 animate-pulse" />
                           <span>Sans limites</span>
                         </div>
                       </div>
 
-                      <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors flex items-center gap-2">
-                        <Keyboard className="w-4 h-4 text-emerald-400" /> Mode Libre Actif
+                      <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors flex items-center gap-2">
+                        <Keyboard className="w-4 h-4 text-burgundy" /> Mode Libre Actif
                       </h3>
 
                       <p className="text-xs text-zinc-400 leading-relaxed italic pr-4 mb-4 font-serif">
@@ -2214,14 +2328,14 @@ export default function App() {
                       </p>
                     </div>
 
-                    <div className="pt-4 border-t border-emerald-500/10 flex items-center justify-between mt-4">
-                      <span className="text-[11px] text-emerald-400/60 font-medium font-mono">Option Intégrée</span>
+                    <div className="pt-4 border-t border-burgundy-border/15 flex items-center justify-between mt-4">
+                      <span className="text-[11px] text-burgundy/60 font-medium font-mono">Option Intégrée</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStartFreeMode(false);
                         }}
-                        className="bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
+                        className="bg-burgundy hover:bg-burgundy-hover text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
                       >
                         Ouvrir <ChevronRight className="w-3 h-3" />
                       </button>
@@ -2241,7 +2355,7 @@ export default function App() {
                     >
                       {/* Interactive Subtle accent top-line depending on level difficulty */}
                       <div className={`absolute top-0 left-0 right-0 h-[2px] transition-all duration-300 ${
-                        story.level === "beginner" ? "bg-emerald-500/40 group-hover:bg-emerald-500" :
+                        story.level === "beginner" ? "bg-burgundy/40 group-hover:bg-burgundy" :
                         story.level === "easy" ? "bg-amber-500/40 group-hover:bg-amber-500" :
                         "bg-indigo-500/40 group-hover:bg-indigo-500"
                       }`} />
@@ -2250,7 +2364,7 @@ export default function App() {
                         {/* Upper Details Meta */}
                         <div className="flex justify-between items-start gap-4 mb-3">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                            story.level === "beginner" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            story.level === "beginner" ? "bg-burgundy-soft text-burgundy border border-burgundy-border" :
                             story.level === "easy" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
                           }`}>
@@ -2266,7 +2380,7 @@ export default function App() {
                         </div>
 
                         {/* Title of Story */}
-                        <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                        <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                           {story.title}
                         </h3>
 
@@ -2286,7 +2400,7 @@ export default function App() {
                             </div>
                             <div className="flex flex-col">
                               <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">Précision</span>
-                              <span className="text-xs font-mono font-bold text-emerald-400 leading-tight">{pb.accuracy}%</span>
+                              <span className="text-xs font-mono font-bold text-burgundy leading-tight">{pb.accuracy}%</span>
                             </div>
                           </div>
                         ) : (
@@ -2353,7 +2467,7 @@ export default function App() {
                           </td>
                           <td className="p-4 text-white font-sans font-medium">{run.storyTitle}</td>
                           <td className="p-4 font-bold text-amber-400">{run.wpm}</td>
-                          <td className="p-4 text-emerald-400">{run.accuracy}%</td>
+                          <td className="p-4 text-burgundy">{run.accuracy}%</td>
                           <td className="p-4 text-rose-500">{run.errors}</td>
                           <td className="p-4 text-zinc-400">{run.duration}s</td>
                           <td className="p-4 text-zinc-500 font-sans italic">
@@ -2379,7 +2493,7 @@ export default function App() {
             {/* Header Display Board */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Apprentissage Interactif</h2>
+                <h2 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">Apprentissage Interactif</h2>
                 <p className="text-sm text-zinc-400 mt-1 max-w-xl font-sans">
                   Développez votre mémoire musculaire sur l'agencement AZERTY. Domptez les touches déplacées et maîtrisez l'accès rapide aux caractères accentués.
                 </p>
@@ -2391,7 +2505,7 @@ export default function App() {
               
               {/* Card 1: Lettres AZERTY */}
               <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/40 group-hover:bg-emerald-500 transition-all duration-300" />
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/40 group-hover:bg-burgundy transition-all duration-300" />
                 
                 <div>
                   <div className="flex justify-between items-start mb-3 font-sans">
@@ -2405,7 +2519,7 @@ export default function App() {
                     <span className="text-[11px] text-zinc-500">15 séquences</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Lettres AZERTY
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2440,7 +2554,7 @@ export default function App() {
                     <span className="text-[11px] text-zinc-500 flex items-center gap-1">4 étapes</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Accents essentiels
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2462,7 +2576,7 @@ export default function App() {
               {/* Card 3: Calibration complète */}
               <div className={`group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border rounded-2xl p-6 transition-all duration-300 relative overflow-hidden ${
                 !settings.calibrationComplete 
-                  ? "border-emerald-500/30 hover:border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.025)]" 
+                  ? "border-burgundy-border hover:border-burgundy/50 shadow-[0_0_20px_rgba(123,30,43,0.025)]" 
                   : "border-white/5 hover:border-white/10"
               }`}>
                 <div className="absolute top-0 left-0 right-0 h-[2px] bg-indigo-500/40 group-hover:bg-indigo-500 transition-all duration-300" />
@@ -2479,7 +2593,7 @@ export default function App() {
                     <span className="text-[11px] text-zinc-500">2 parties</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Calibration complète
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2593,17 +2707,17 @@ export default function App() {
 
               {/* Card 7: Phrases complètes */}
               <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500/60 group-hover:bg-emerald-500 transition-all duration-300" />
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/60 group-hover:bg-burgundy transition-all duration-300" />
                 
                 <div>
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-burgundy-soft text-burgundy border border-burgundy-border">
                       Maîtrise
                     </span>
                     <span className="text-[11px] text-zinc-500 font-mono">Générateur libre</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-emerald-400 transition-colors">
+                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Phrases complètes
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2876,7 +2990,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           setLessonTitle("Vocabulaire de la Cuisine");
-                          setLessonText(`#WORDS\ncuire, four, sel, farine\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n#TRANSLATION\nThis morning, I make bread...`);
+                          setLessonText(`#GLOSSARY\ncuire (to cook) — je cuis le pain (I cook the bread)\nfour (oven) — un four chaud (a hot oven)\n\n#WORDS\ncuire, four, sel, farine\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n#TRANSLATION\nThis morning, I make bread...`);
                         }}
                         className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase font-sans tracking-wide"
                       >
@@ -2884,14 +2998,14 @@ export default function App() {
                       </button>
                     </div>
                     <textarea
-                      placeholder={`#WORDS\ncuire, four, sel, farine\n\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n\n#TRANSLATION\nThis morning, I make bread...`}
+                      placeholder={`#GLOSSARY\ncuire (to cook) — je cuis le pain (I cook the bread)\nfour (oven) — un four chaud (a hot oven)\n\n#WORDS\ncuire, four, sel, farine\n\n#SENTENCES\nJe fais cuire le pain.\nLe four est très chaud.\n\n#PARAGRAPH\nCe matin, je prépare du pain. Le four est chaud...\n\n#TRANSLATION\nThis morning, I make bread...`}
                       value={lessonText}
                       onChange={(e) => setLessonText(e.target.value)}
                       rows={12}
                       className="w-full bg-[#050507] border border-white/5 hover:border-[#1e2029] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white rounded-xl px-4 py-3 text-sm transition-all focus:outline-none font-mono placeholder-zinc-600 leading-relaxed scrollbar-thin"
                     />
                     <span className="text-[10px] text-zinc-500 leading-normal">
-                      Conseil : Utilisez exactement les balises <span className="text-zinc-400 font-mono">#WORDS</span>, <span className="text-zinc-400 font-mono">#SENTENCES</span>, <span className="text-zinc-400 font-mono">#PARAGRAPH</span> et <span className="text-zinc-400 font-mono">#TRANSLATION</span>.
+                      Conseil : Utilisez exactement les balises <span className="text-zinc-400 font-mono">#GLOSSARY</span>, <span className="text-zinc-400 font-mono">#WORDS</span>, <span className="text-zinc-400 font-mono">#SENTENCES</span>, <span className="text-zinc-400 font-mono">#PARAGRAPH</span> et <span className="text-zinc-400 font-mono">#TRANSLATION</span>.
                     </span>
                   </div>
                 </div>
@@ -2914,7 +3028,8 @@ export default function App() {
                         paragraph: parsed.lesson.paragraph,
                         translation: parsed.lesson.translation,
                         date: Date.now(),
-                        completed: false
+                        completed: false,
+                        glossary: parsed.lesson.glossary
                       };
 
                       try {
@@ -3029,107 +3144,135 @@ export default function App() {
         )}
 
         {/* VIEW 2.5: INTERACTIVE TYPING MASTER AZERTY DRILL (LETTERS, ACCENTS, OR CALIBRATION) */}
-        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") && (
-          <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
-            
-            {/* Header / Meta / Progress marker */}
-            <div className="flex flex-col items-center relative gap-2 font-sans mb-2">
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => {
-                    if ("speechSynthesis" in window) {
-                      window.speechSynthesis.cancel();
+        {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") && (() => {
+          const showGlossary = practiceType === "lesson" && activeLesson?.glossary && activeLesson.glossary.length > 0 && drillStage < 4;
+          const currentTargetWord = drillItems[drillItemIndex] || "";
+
+          return (
+            <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
+              
+              {/* Header / Meta / Progress marker */}
+              <div className="flex flex-col items-center relative gap-2 font-sans mb-2">
+                <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4">
+                  <button 
+                    onClick={() => {
+                      if ("speechSynthesis" in window) {
+                        window.speechSynthesis.cancel();
+                      }
+                      setCurrentScreen("learn");
+                    }}
+                    className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                  >
+                    ← Retour à Apprendre
+                  </button>
+                  <div className="h-4 w-px bg-white/10" />
+                  <span className="text-xs font-bold text-burgundy uppercase tracking-widest bg-burgundy-soft px-2.5 py-0.5 rounded-full border border-burgundy-border">
+                    {practiceType === "calibration" 
+                      ? `Calibration : Partie ${calibrationPart}` 
+                      : practiceType === "accents" 
+                      ? "Accents essentiels" 
+                      : practiceType === "flow"
+                      ? `Fluidité progressive (Ronde ${drillRound})`
+                      : practiceType === "wordsShort"
+                      ? `Mots courts (Ronde ${drillRound})`
+                      : practiceType === "wordsLong"
+                      ? `Mots longs (Ronde ${drillRound})`
+                      : practiceType === "phrases"
+                      ? `Phrases complètes (Ronde ${drillRound})`
+                      : practiceType === "dictation"
+                      ? `Dictée - ${dictationScope === "words" ? "Mots" : "Progressif"} (Ronde ${drillRound})`
+                      : `Ronde ${drillRound}`
                     }
-                    setCurrentScreen("learn");
-                  }}
-                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
-                >
-                  ← Retour à Apprendre
-                </button>
-                <div className="h-4 w-px bg-white/10" />
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                  {practiceType === "calibration" 
-                    ? `Calibration : Partie ${calibrationPart}` 
-                    : practiceType === "accents" 
-                    ? "Accents essentiels" 
-                    : practiceType === "flow"
-                    ? `Fluidité progressive (Ronde ${drillRound})`
-                    : practiceType === "wordsShort"
-                    ? `Mots courts (Ronde ${drillRound})`
-                    : practiceType === "wordsLong"
-                    ? `Mots longs (Ronde ${drillRound})`
-                    : practiceType === "phrases"
-                    ? `Phrases complètes (Ronde ${drillRound})`
-                    : practiceType === "dictation"
-                    ? `Dictée - ${dictationScope === "words" ? "Mots" : "Progressif"} (Ronde ${drillRound})`
-                    : `Ronde ${drillRound}`
-                  }
-                </span>
-                <div className="h-4 w-px bg-white/10" />
-                <button 
-                  onClick={handleStopLettersDrill}
-                  className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 transition-all cursor-pointer font-sans"
-                >
-                  Terminer la session
-                </button>
-              </div>
+                  </span>
+                  
+                  {showGlossary && (
+                    <>
+                      <div className="h-4 w-px bg-white/10" />
+                      <button 
+                        onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+                        className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
+                          glossaryExpanded 
+                            ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                            : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
+                      </button>
+                    </>
+                  )}
 
-              {/* Stage Indicators */}
-              {(practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "dictation") ? (
-                <div className="flex flex-wrap items-center justify-center gap-x-2 sm:gap-x-4 gap-y-1.5 mt-3 px-2">
-                  {[1, 2, 3, 4].map((stageNum) => {
-                    if (practiceType === "dictation" && dictationScope === "words" && stageNum === 4) return null;
-                    return (
-                      <div key={stageNum} className="flex items-center gap-1.5 sm:gap-2">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                          drillStage === stageNum 
-                            ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" 
-                            : drillStage > stageNum 
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
-                            : "bg-white/5 text-zinc-500 border border-white/5"
-                        }`}>
-                          {stageNum}
+                  <div className="h-4 w-px bg-white/10" />
+                  <button 
+                    onClick={handleStopLettersDrill}
+                    className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 transition-all cursor-pointer font-sans"
+                  >
+                    Terminer la session
+                  </button>
+                </div>
+
+                {/* Stage Indicators */}
+                {(practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "dictation") ? (
+                  <div className="flex flex-wrap items-center justify-center gap-x-2 sm:gap-x-4 gap-y-1.5 mt-3 px-2">
+                    {[1, 2, 3, 4].map((stageNum) => {
+                      if (practiceType === "dictation" && dictationScope === "words" && stageNum === 4) return null;
+                      return (
+                        <div key={stageNum} className="flex items-center gap-1.5 sm:gap-2">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                            drillStage === stageNum 
+                              ? "bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse" 
+                              : drillStage > stageNum 
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" 
+                              : "bg-white/5 text-zinc-500 border border-white/5"
+                          }`}>
+                            {stageNum}
+                          </div>
+                          <span className={`text-[9px] sm:text-[11px] font-sans font-semibold uppercase tracking-wider ${
+                            drillStage === stageNum ? "text-white" : "text-zinc-500"
+                          }`}>
+                            {practiceType === "flow" || practiceType === "dictation" ? (
+                              stageNum === 1 ? "Mots courts" : stageNum === 2 ? "Mots moyens" : stageNum === 3 ? "Mots longs" : "Phrases"
+                            ) : (
+                              stageNum === 1 ? "Touches" : stageNum === 2 ? "Combos courts" : stageNum === 3 ? "Combos longs" : "Mots"
+                            )}
+                          </span>
+                          {((practiceType === "dictation" && dictationScope === "words") ? stageNum < 3 : stageNum < 4) && <ChevronRight className="w-3 h-3 text-zinc-700 hidden sm:block" />}
                         </div>
-                        <span className={`text-[9px] sm:text-[11px] font-sans font-semibold uppercase tracking-wider ${
-                          drillStage === stageNum ? "text-white" : "text-zinc-500"
-                        }`}>
-                          {practiceType === "flow" || practiceType === "dictation" ? (
-                            stageNum === 1 ? "Mots courts" : stageNum === 2 ? "Mots moyens" : stageNum === 3 ? "Mots longs" : "Phrases"
-                          ) : (
-                            stageNum === 1 ? "Touches" : stageNum === 2 ? "Combos courts" : stageNum === 3 ? "Combos longs" : "Mots"
-                          )}
-                        </span>
-                        {((practiceType === "dictation" && dictationScope === "words") ? stageNum < 3 : stageNum < 4) && <ChevronRight className="w-3 h-3 text-zinc-700 hidden sm:block" />}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
+                      );
+                    })}
+                  </div>
+                ) : null}
 
-              {/* Current sequence progression bar */}
-              <div className="flex items-center gap-3 mt-3">
-                <span className="text-[10px] text-zinc-500 font-mono uppercase">
-                  Séquence {drillItemIndex + 1} sur {drillItems.length}
-                </span>
-                <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-emerald-500 transition-all duration-300"
-                    style={{ width: `${(drillItemIndex / drillItems.length) * 100}%` }}
-                  />
+                {/* Current sequence progression bar */}
+                <div className="flex items-center gap-3 mt-3">
+                  <span className="text-[10px] text-zinc-500 font-mono uppercase">
+                    Séquence {drillItemIndex + 1} sur {drillItems.length}
+                  </span>
+                  <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-burgundy transition-all duration-300"
+                      style={{ width: `${(drillItemIndex / drillItems.length) * 100}%` }}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Target Display Panel */}
-            <div className="flex-1 flex flex-col items-center justify-center py-4 min-h-[180px]">
-              <div 
-                onClick={focusInputZone}
-                className={`max-w-2xl w-full text-center relative py-8 px-6 bg-zinc-950 border rounded-3xl cursor-text transition-all duration-300 overflow-hidden min-h-[180px] flex flex-col justify-center items-center ${
-                  drillTargetFlash 
-                    ? "border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.15)] bg-emerald-500/[0.01]" 
-                    : "border-white/5 hover:border-white/10"
-                }`}
-              >
+              {/* Split container for typing area and glossary panel */}
+              <div className="w-full flex flex-col lg:flex-row gap-6 items-stretch flex-1">
+                
+                {/* Typing main interface (Target, keyboard, hands) */}
+                <div className="flex-1 flex flex-col justify-between gap-6 min-w-0">
+                  
+                  {/* Target Display Panel */}
+                  <div className="flex-1 flex flex-col items-center justify-center py-4 min-h-[180px]">
+                    <div 
+                      onClick={focusInputZone}
+                      className={`max-w-2xl w-full mx-auto text-center relative py-8 px-6 bg-zinc-950 border rounded-3xl cursor-text transition-all duration-300 overflow-hidden min-h-[180px] flex flex-col justify-center items-center ${
+                        drillTargetFlash 
+                          ? "border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.15)] bg-emerald-500/[0.01]" 
+                          : "border-white/5 hover:border-white/10"
+                      }`}
+                    >
                 <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.01] to-transparent pointer-events-none" />
 
                 {/* Stage completed flash overlay */}
@@ -3442,7 +3585,18 @@ export default function App() {
               placeholder="Frappez ici..."
             />
           </div>
-        )}
+
+          {/* Side Glossary Panel */}
+          <GlossaryPanel
+            entries={activeLesson?.glossary || []}
+            visible={!!(showGlossary && glossaryExpanded)}
+            onToggle={() => setGlossaryExpanded(false)}
+            currentTargetWord={currentTargetWord}
+          />
+        </div>
+
+      </div>
+    ); })()}
 
         {currentScreen === "practice" && practiceType === "free" && (
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
@@ -3457,72 +3611,104 @@ export default function App() {
                     }
                     setCurrentScreen("library");
                   }}
-                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer font-sans"
                 >
                   ← Retour à la bibliothèque
                 </button>
                 <div className="h-4 w-px bg-white/10" />
                 <span className="text-xs font-bold text-zinc-400">Mode Libre — Saisie libre du Français</span>
+
+                {freeModeGlossary.length > 0 && (
+                  <>
+                    <div className="h-4 w-px bg-white/10" />
+                    <button 
+                      onClick={() => {
+                        setGlossaryExpanded(!glossaryExpanded);
+                        setTimeout(() => focusInputZone(), 50);
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
+                        glossaryExpanded 
+                          ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                          : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* TWO STACKED BOXES OF EQUAL HEIGHT */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            {/* Split container for typing area and glossary panel in Mode Libre */}
+            <div className={`w-full flex ${freeModeGlossary.length > 0 && glossaryExpanded ? "flex-col lg:flex-row" : "flex-col"} gap-6 items-stretch flex-1`}>
               
-              {/* Box 1: Left/Top box — French text display */}
-              <div className="flex flex-col h-[280px]">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
-                    Texte Source Français (Top Box)
-                  </span>
-                  {freeModeActive && (
-                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-sans border border-emerald-500/20">
-                      Verrouillé pour saisie
+              {/* Typing main interface container */}
+              <div className="flex-1 flex flex-col justify-between gap-6 min-w-0">
+
+            {/* SINGLE FULL-WIDTH INTERACTIVE WORKSPACE */}
+            <div className="w-full mt-4 flex flex-col">
+              {!freeModeActive ? (
+                // Setup interface when inactive
+                <div className="flex flex-col min-h-[340px]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
+                      Texte Source Français
                     </span>
-                  )}
-                </div>
-                
-                {!freeModeActive ? (
+                    <button
+                      onClick={() => {
+                        setFreeModeText(`#GLOSSARY\nsoleil (sun) — le soleil brille (the sun is shining)\nciel (sky) — le ciel bleu (the blue sky)\n\n#PARAGRAPH\nAujourd'hui, le soleil brille dans le ciel bleu.\n\n#TRANSLATION\nToday, the sun is shining in the blue sky.`);
+                      }}
+                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase font-sans tracking-wide cursor-pointer"
+                    >
+                      Insérer un exemple de format
+                    </button>
+                  </div>
                   <textarea
                     value={freeModeText}
                     onChange={(e) => setFreeModeText(e.target.value)}
                     placeholder="Collez votre texte français ici..."
-                    className="w-full h-full flex-1 p-5 bg-[#111216] border border-white/5 focus:border-emerald-500/40 rounded-2xl text-zinc-200 text-sm font-serif leading-relaxed focus:outline-none placeholder-zinc-650 resize-none transition-all scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+                    className="w-full h-[280px] p-5 bg-[#111216]/60 border border-white/5 focus:border-burgundy-border rounded-2xl text-zinc-200 text-sm font-serif leading-relaxed focus:outline-none placeholder-zinc-550 resize-none transition-all scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
                   />
-                ) : (
-                  <div 
-                    onClick={focusInputZone}
-                    className="w-full h-full flex-1 p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto text-zinc-200 text-sm leading-relaxed font-serif relative cursor-text text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
-                  >
-                    {freeModeText.split("").map((expectedChar, index) => {
-                      let charClass = "text-zinc-600 font-normal";
-                      let borderClass = "";
-                      if (index < typedText.length) {
-                        charClass = "text-emerald-500/60 font-normal";
-                      } else if (index === typedText.length) {
-                        charClass = "text-white font-bold bg-white/10 rounded px-0.5 animate-pulse";
-                        borderClass = "border-l-2 border-emerald-400";
-                      }
-                      return (
-                        <span key={index} className={`relative whitespace-pre-wrap ${charClass} ${borderClass}`}>
-                          {expectedChar}
-                        </span>
-                      );
-                    })}
+                  <div className="flex justify-center mt-5">
+                    <button
+                      onClick={() => {
+                        if (freeModeText.trim()) {
+                          const parsed = parsePastedContent(freeModeText);
+                          if (parsed.glossary.length > 0 || parsed.translation) {
+                            setFreeModeGlossary(parsed.glossary);
+                            setFreeModeTranslation(parsed.translation);
+                            setFreeModeText(parsed.paragraph);
+                          } else {
+                            setFreeModeGlossary([]);
+                            setFreeModeTranslation("");
+                          }
+                          setFreeModeTranslationExpanded(false);
+                          setFreeModeActive(true);
+                          setTypedText("");
+                          setCurrentStoryErrorChar(null);
+                          setSessionStartTime(null);
+                          setSentenceStartTime(null);
+                          setSessionTotalCharsTyped(0);
+                          setSessionTotalErrors(0);
+                          setActiveSentenceErrors(0);
+                          setTimeout(() => focusInputZone(), 120);
+                        }
+                      }}
+                      disabled={!freeModeText.trim()}
+                      className="px-6 py-2.5 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy disabled:opacity-40 disabled:hover:bg-burgundy disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer hover:scale-102"
+                    >
+                      <Play className="w-4 h-4 fill-current" /> Commencer
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {/* Box 2: Right/Bottom box — typing zone */}
-              <div 
-                onClick={focusInputZone}
-                className="flex flex-col h-[280px] cursor-text"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
-                    Zone d'Écriture (Bottom Box)
-                  </span>
-                  {freeModeActive && (
+                </div>
+              ) : (
+                // Mirror-mode typing zone when active, taking full width
+                <div onClick={focusInputZone} className="flex flex-col min-h-[300px] cursor-text">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
+                      Zone d'Écriture
+                    </span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -3542,37 +3728,9 @@ export default function App() {
                     >
                       Effacer / Modifier le texte
                     </button>
-                  )}
-                </div>
-                
-                <div className="w-full h-full flex-1 p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto relative text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
-                  {!freeModeActive ? (
-                    <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4 text-center px-4">
-                      <p className="text-xs italic font-serif leading-relaxed">
-                        Collez ou écrivez un texte en français à gauche, puis cliquez sur le bouton ci-dessous pour lancer la session de saisie.
-                      </p>
-                      <button
-                        onClick={() => {
-                          if (freeModeText.trim()) {
-                            setFreeModeActive(true);
-                            setTypedText("");
-                            setCurrentStoryErrorChar(null);
-                            setSessionStartTime(null);
-                            setSentenceStartTime(null);
-                            setSessionTotalCharsTyped(0);
-                            setSessionTotalErrors(0);
-                            setActiveSentenceErrors(0);
-                            setTimeout(() => focusInputZone(), 120);
-                          }
-                        }}
-                        disabled={!freeModeText.trim()}
-                        className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-500 disabled:cursor-not-allowed text-black font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer hover:scale-102"
-                      >
-                        <Play className="w-4 h-4 fill-current" /> Commencer
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-[#3f404d] text-sm leading-relaxed font-serif relative">
+                  </div>
+                  <div className="w-full flex-1 min-h-[240px] p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto relative text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
+                    <div className="text-[#3f404d] text-base sm:text-lg lg:text-xl leading-relaxed font-serif relative">
                       {freeModeText.split("").map((expectedChar, index) => {
                         let charClass = "text-[#3f404d]"; // Future text
                         let borderClass = "";
@@ -3596,14 +3754,34 @@ export default function App() {
                         );
                       })}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+
+            {freeModeTranslation && freeModeActive && (
+              <div className="w-full max-w-2xl mx-auto mt-4 px-4 flex flex-col items-center">
+                <button
+                  onClick={() => {
+                    setFreeModeTranslationExpanded(!freeModeTranslationExpanded);
+                    setTimeout(() => focusInputZone(), 50);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#17181f]/80 hover:bg-zinc-800 border border-white/5 hover:border-white/10 rounded-full text-[10px] sm:text-[11px] font-bold text-zinc-400 uppercase tracking-wider transition-all select-none cursor-pointer"
+                >
+                  <span>{freeModeTranslationExpanded ? "Masquer la traduction" : "Voir la traduction"}</span>
+                  <span className="text-[10px] text-zinc-500">{freeModeTranslationExpanded ? "▲" : "▼"}</span>
+                </button>
+                {freeModeTranslationExpanded && (
+                  <div className="w-full mt-3 p-4 bg-zinc-950/60 border border-white/5 rounded-xl text-left text-xs sm:text-sm text-zinc-300 italic font-serif leading-relaxed max-h-32 overflow-y-auto scrollbar-thin animate-fadeIn">
+                    {freeModeTranslation}
+                  </div>
+                )}
+              </div>
+            )}
 
             {freeModeActive && (
               <div className="text-[10px] text-zinc-500 uppercase tracking-widest flex items-center justify-center gap-2 mt-2">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></div>
+                <div className="w-1.5 h-1.5 bg-burgundy rounded-full animate-ping"></div>
                 <span>Mode miroir actif. Cliquez sur l'une des boîtes si vous perdez le focus.</span>
               </div>
             )}
@@ -3637,7 +3815,7 @@ export default function App() {
                           key={kIdx} 
                           className={`w-10 h-11 flex-shrink-0 relative bg-zinc-900 rounded-lg flex items-center justify-center pt-2 select-none ${
                             isAccent 
-                              ? "border border-emerald-500/30 bg-emerald-500/[0.02]" 
+                              ? "border border-burgundy-border bg-burgundy-soft" 
                               : "border border-white/5"
                           }`}
                         >
@@ -3646,7 +3824,7 @@ export default function App() {
                               {keyObj.sub}
                             </span>
                           )}
-                          <span className={`text-sm font-semibold ${isAccent ? "text-emerald-300 font-bold" : "text-zinc-200"}`}>
+                          <span className={`text-sm font-semibold ${isAccent ? "text-burgundy font-bold" : "text-zinc-200"}`}>
                             {keyObj.main}
                           </span>
                         </div>
@@ -3672,6 +3850,17 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </div>
+
+              </div>
+
+              {/* Side Glossary Panel */}
+              <GlossaryPanel
+                entries={freeModeGlossary}
+                visible={!!(freeModeGlossary.length > 0 && glossaryExpanded)}
+                onToggle={() => setGlossaryExpanded(false)}
+                currentTargetWord={currentTargetWord}
+              />
             </div>
 
             {/* Bottom Controls Speed and Playback Footer */}
@@ -3706,7 +3895,7 @@ export default function App() {
                 {freeModeActive && (
                   <button
                     onClick={() => playSentenceAudio(freeModeText)}
-                    className="p-2 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                    className="p-2 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                   >
                     <Volume2 className="w-3.5 h-3.5" /> Écouter
                   </button>
@@ -3750,6 +3939,26 @@ export default function App() {
                 </button>
                 <div className="h-4 w-px bg-white/10" />
                 <span className="text-xs font-bold text-zinc-400 truncate max-w-xs">{selectedStory.title}</span>
+
+                {selectedStory.glossary && selectedStory.glossary.length > 0 && (
+                  <>
+                    <div className="h-4 w-px bg-white/10" />
+                    <button 
+                      onClick={() => {
+                        setGlossaryExpanded(!glossaryExpanded);
+                        setTimeout(() => focusInputZone(), 50);
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
+                        glossaryExpanded 
+                          ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                          : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Central Progress Tracking Gauge bar */}
@@ -3759,12 +3968,18 @@ export default function App() {
                 </span>
                 <div className="w-48 h-1 bg-white/5 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-emerald-500 transition-all duration-300"
+                    className="h-full bg-burgundy transition-all duration-300"
                     style={{ width: `${((currentSentenceIndex) / selectedStory.sentences.length) * 100}%` }}
                   />
                 </div>
               </div>
             </div>
+
+            {/* Split container for typing area and glossary panel */}
+            <div className={`w-full flex ${selectedStory.glossary && selectedStory.glossary.length > 0 && glossaryExpanded ? "flex-col lg:flex-row" : "flex-col"} gap-6 items-stretch flex-1`}>
+              
+              {/* Typing main interface (Target, keyboard, hands) */}
+              <div className="flex-1 flex flex-col justify-between gap-6 min-w-0">
 
             {/* Core Display Text block with highlight active cursor indicator */}
             <div className="flex-1 flex flex-col items-center justify-center py-6 min-h-[220px]">
@@ -3772,7 +3987,11 @@ export default function App() {
               {/* Click box container to assert focus */}
               <div 
                 onClick={focusInputZone}
-                className="max-w-4xl w-full text-center relative py-6 px-4 bg-white/[0.01] border border-white/5 hover:border-white/10 rounded-2xl cursor-text transition-all group"
+                className={`max-w-4xl w-full text-center relative py-6 px-4 border rounded-2xl cursor-text transition-all duration-200 group ${
+                  sentenceErrorFlash 
+                    ? "bg-rose-500/10 border-rose-500/40 scale-[0.99] shadow-[0_0_20px_rgba(239,68,68,0.15)] animate-none" 
+                    : "bg-white/[0.01] border-white/5 hover:border-white/10"
+                }`}
               >
                 {/* Floating helpful hints helper inside top corner */}
                 {showAccentTooltip && (
@@ -3838,7 +4057,7 @@ export default function App() {
 
                 {/* Focus Active Status Indicator overlay */}
                 <div className="text-[10px] text-zinc-600 uppercase tracking-widest mt-8 flex items-center justify-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></div>
+                  <div className="w-1.5 h-1.5 bg-burgundy rounded-full animate-ping"></div>
                   <span>Mode miroir actif. Cliquez sur la zone de saisie pour commencer à taper.</span>
                 </div>
               </div>
@@ -3887,7 +4106,7 @@ export default function App() {
                           key={kIdx} 
                           className={`w-10 h-11 flex-shrink-0 relative bg-zinc-900 rounded-lg flex items-center justify-center pt-2 select-none ${
                             isAccent 
-                              ? "border border-emerald-500/30 bg-emerald-500/[0.02]" 
+                              ? "border border-burgundy-border bg-burgundy-soft" 
                               : "border border-white/5"
                           }`}
                         >
@@ -3896,7 +4115,7 @@ export default function App() {
                               {keyObj.sub}
                             </span>
                           )}
-                          <span className={`text-sm font-semibold ${isAccent ? "text-emerald-300 font-bold" : "text-zinc-200"}`}>
+                          <span className={`text-sm font-semibold ${isAccent ? "text-burgundy font-bold" : "text-zinc-200"}`}>
                             {keyObj.main}
                           </span>
                         </div>
@@ -3934,7 +4153,7 @@ export default function App() {
                 </h3>
                 <button 
                   onClick={() => setIsFullStoryVisible(!isFullStoryVisible)}
-                  className="text-[9px] tracking-widest text-emerald-400 font-bold uppercase hover:underline cursor-pointer"
+                  className="text-[9px] tracking-widest text-burgundy font-bold uppercase hover:underline cursor-pointer"
                 >
                   {isFullStoryVisible ? "Masquer le contexte" : "Afficher l'histoire complète"}
                 </button>
@@ -3950,7 +4169,7 @@ export default function App() {
                       textStyle = "text-zinc-500 line-through opacity-40";
                       prefix = "✓ ";
                     } else if (idx === currentSentenceIndex) {
-                      textStyle = "text-white font-medium border-l-2 border-emerald-500 pl-2 bg-emerald-500/5 py-1 rounded";
+                      textStyle = "text-white font-medium border-l-2 border-burgundy pl-2 bg-burgundy-soft py-1 rounded";
                       prefix = "▶ ";
                     } else {
                       textStyle = "text-zinc-500 opacity-60";
@@ -3973,7 +4192,7 @@ export default function App() {
                       ... {selectedStory.sentences[currentSentenceIndex - 1]?.french}
                     </span>
                   )}
-                  <span className="text-white bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 underline underline-offset-4">
+                  <span className="text-white bg-burgundy-soft px-2 py-0.5 rounded border border-burgundy-border/25 underline underline-offset-4">
                     {currentSentence.french}
                   </span>
                   {currentSentenceIndex + 1 < selectedStory.sentences.length && (
@@ -3983,6 +4202,17 @@ export default function App() {
                   )}
                 </div>
               )}
+            </div>
+
+              </div>
+
+              {/* Side Glossary Panel */}
+              <GlossaryPanel
+                entries={selectedStory.glossary || []}
+                visible={!!(selectedStory.glossary && selectedStory.glossary.length > 0 && glossaryExpanded)}
+                onToggle={() => setGlossaryExpanded(false)}
+                currentTargetWord={currentTargetWord}
+              />
             </div>
 
             {/* Bottom Controls / Speeds Footer */}
@@ -4020,10 +4250,10 @@ export default function App() {
                 <button 
                   onClick={() => playSentenceAudio(currentSentence.french)}
                   disabled={premiumTtsLoading}
-                  className="flex items-center gap-2 text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer group disabled:opacity-50"
+                  className="flex items-center gap-2 text-zinc-400 hover:text-burgundy transition-colors cursor-pointer group disabled:opacity-50"
                   title="Presser Tab de votre clavier pour rejouer l'audio"
                 >
-                  <Volume2 className={`w-5 h-5 ${isSpeaking ? "text-emerald-400 animate-bounce" : "text-zinc-400 group-hover:text-emerald-400"}`} />
+                  <Volume2 className={`w-5 h-5 ${isSpeaking ? "text-burgundy animate-bounce" : "text-zinc-400 group-hover:text-burgundy"}`} />
                   <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Répéter l'audio (Tab)</span>
                 </button>
               </div>
@@ -4088,7 +4318,7 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
                 <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans">Précision</span>
-                <span className="text-3xl font-mono text-emerald-400 mt-1 leading-none">{completedDrillDetails.accuracy}%</span>
+                <span className="text-3xl font-mono text-burgundy mt-1 leading-none">{completedDrillDetails.accuracy}%</span>
                 <span className="text-[10px] text-zinc-500 mt-1 font-sans">frappes correctes</span>
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
@@ -4112,7 +4342,7 @@ export default function App() {
             {/* Specific letters causing the most errors */}
             <div className="p-6 bg-white/[0.01] border border-white/5 rounded-2xl font-sans">
               <h3 className="text-sm font-serif text-white mb-3 flex items-center gap-1.5 border-b border-white/5 pb-2">
-                <Languages className="w-4 h-4 text-emerald-400" /> Touches nécessitant du travail
+                <Languages className="w-4 h-4 text-burgundy" /> Touches nécessitant du travail
               </h3>
               
               {Object.keys(completedDrillDetails.errorsByChar).length > 0 ? (
@@ -4153,7 +4383,7 @@ export default function App() {
               {practiceType === "letters" && (
                 <button 
                   onClick={() => startDrillSession("accents")}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
                 >
                   Continuer vers Accents <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -4162,7 +4392,7 @@ export default function App() {
               {practiceType === "accents" && (
                 <button 
                   onClick={() => startDrillSession("calibration")}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
                 >
                   Continuer vers Calibration <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -4203,7 +4433,7 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
                 <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Précision</span>
-                <span className="text-3xl font-mono text-emerald-400 mt-1 leading-none">{completedSessionDetails.accuracy}%</span>
+                <span className="text-3xl font-mono text-burgundy mt-1 leading-none">{completedSessionDetails.accuracy}%</span>
                 <span className="text-[10px] text-zinc-500 mt-1">frappes correctes</span>
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
@@ -4235,7 +4465,7 @@ export default function App() {
               
               <button 
                 onClick={() => handleStartFreeMode(false)}
-                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="w-full sm:w-auto px-6 py-2.5 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 Nouveau texte <ArrowRight className="w-3.5 h-3.5" />
               </button>
@@ -4275,7 +4505,7 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
                 <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Précision</span>
-                <span className="text-3xl font-mono text-emerald-400 mt-1 leading-none">{completedSessionDetails.accuracy}%</span>
+                <span className="text-3xl font-mono text-burgundy mt-1 leading-none">{completedSessionDetails.accuracy}%</span>
                 <span className="text-[10px] text-zinc-500 mt-1">frappes correctes</span>
               </div>
               <div className="flex flex-col items-center text-center p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
@@ -4299,13 +4529,13 @@ export default function App() {
             {/* Hardest Words List Section */}
             <div className="p-6 bg-white/[0.01] border border-white/5 rounded-2xl">
               <h3 className="text-sm font-serif text-white mb-3 flex items-center gap-1.5 border-b border-white/5 pb-2">
-                <Languages className="w-4 h-4 text-emerald-400" /> Mots les plus difficiles à écrire
+                <Languages className="w-4 h-4 text-burgundy" /> Mots les plus difficiles à écrire
               </h3>
               
               {completedSessionDetails.hardestWords && completedSessionDetails.hardestWords.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-xs text-zinc-400">
-                    Ces termes ont enregistré le plus haut taux d'erreur de frappe ou d' accents oubliés durante l'exercice. Assurez-vous d'appuyer sur la bonne touche :
+                    Ces termes ont enregistré le plus haut taux d'erreur de frapping ou d' accents oubliés durante l'exercice. Assurez-vous d'appuyer sur la bonne touche :
                   </p>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {completedSessionDetails.hardestWords.map((word) => (
@@ -4336,7 +4566,7 @@ export default function App() {
               
               <button 
                 onClick={handleNextStoryTrigger}
-                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-black rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="w-full sm:w-auto px-6 py-2.5 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 Histoire suivante <ArrowRight className="w-3.5 h-3.5" />
               </button>
@@ -4363,7 +4593,7 @@ export default function App() {
             
             <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#15161c]">
               <div className="flex items-center gap-2">
-                <Settings className="w-4 h-4 text-emerald-400" />
+                <Settings className="w-4 h-4 text-burgundy" />
                 <h3 className="text-base font-serif text-white">Paramètres Généraux</h3>
               </div>
               <button 
@@ -4395,7 +4625,7 @@ export default function App() {
                       onClick={() => handleUpdateSettings({ ...settings, audioSpeed: eSpeed.id as any })}
                       className={`flex-1 py-2 text-xs font-medium border rounded-lg transition-colors cursor-pointer ${
                         settings.audioSpeed === eSpeed.id 
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                          ? "bg-burgundy-soft text-burgundy border-burgundy-border" 
                           : "bg-white/5 text-zinc-400 border-white/5 hover:border-white/10"
                       }`}
                     >
@@ -4416,7 +4646,7 @@ export default function App() {
                 <button
                   onClick={() => handleUpdateSettings({ ...settings, soundEffects: !settings.soundEffects })}
                   className={`w-12 h-6 rounded-full p-1 transition-all flex items-center ${
-                    settings.soundEffects ? "bg-emerald-500 justify-end" : "bg-zinc-800 justify-start"
+                    settings.soundEffects ? "bg-burgundy justify-end" : "bg-zinc-800 justify-start"
                   }`}
                 >
                   <div className="w-4 h-4 rounded-full bg-black"></div>
@@ -4454,7 +4684,7 @@ export default function App() {
               <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Premium Audio TTS Cloud (Optionnel)</label>
-                  <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Mosaïque HD</span>
+                  <span className="text-[9px] bg-burgundy-soft text-burgundy px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Mosaïque HD</span>
                 </div>
                 <p className="text-[11px] text-zinc-500 leading-normal">
                   Renseignez une clé d'API OpenAI pour synthétiser des voix ultra-réalistes de qualité studio.
@@ -4464,7 +4694,7 @@ export default function App() {
                   value={settings.ttsApiKey}
                   onChange={(e) => handleUpdateSettings({ ...settings, ttsApiKey: e.target.value })}
                   placeholder="sk-or-elevenlabs-key-..."
-                  className="w-full bg-zinc-950 border border-white/5 focus:border-emerald-500/50 rounded-lg p-2.5 text-xs text-white focus:outline-none placeholder-zinc-700"
+                  className="w-full bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-2.5 text-xs text-white focus:outline-none placeholder-zinc-700"
                 />
               </div>
 
@@ -4562,7 +4792,7 @@ export default function App() {
             
             <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#15161c]">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-emerald-400" />
+                <BookOpen className="w-4 h-4 text-burgundy" />
                 <h3 className="text-base font-serif text-white">Ajouter une histoire personnalisée</h3>
               </div>
               <button 
@@ -4584,7 +4814,7 @@ export default function App() {
                       value={newStoryTitle}
                       onChange={(e) => setNewStoryTitle(e.target.value)}
                       placeholder="Ex: Le Château Rouge"
-                      className="bg-zinc-950 border border-white/5 focus:border-emerald-500/50 rounded-lg p-2.5 text-xs text-white focus:outline-none"
+                      className="bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-2.5 text-xs text-white focus:outline-none"
                     />
                   </div>
                   
@@ -4593,7 +4823,7 @@ export default function App() {
                     <select
                       value={newStoryLevel}
                       onChange={(e) => setNewStoryLevel(e.target.value as StoryLevel)}
-                      className="bg-zinc-950 border border-white/5 focus:border-emerald-500/50 rounded-lg p-2.5 text-xs text-white focus:outline-none h-[38px] cursor-pointer"
+                      className="bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-2.5 text-xs text-white focus:outline-none h-[38px] cursor-pointer"
                     >
                       <option value="beginner">Débutant (Beginner)</option>
                       <option value="easy">Facile (Easy)</option>
@@ -4603,13 +4833,38 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-zinc-400 font-bold uppercase font-sans">Texte brut en Français (Paragraphe)</label>
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs text-zinc-400 font-bold uppercase font-sans">Texte brut en Français (Paragraphe)</label>
+                    <button
+                      onClick={() => {
+                        setNewStoryTitle("Ma Belle Histoire");
+                        setNewStoryRawText(`#GLOSSARY\nchâteau (castle) — un vieux château (an old castle)\nrouge (red) — la fleur rouge (the red flower)\n\n#PARAGRAPH\nCe matin, je regarde le vieux château. La fleur rouge est belle.\n\n#TRANSLATION\nThis morning, I look at the old castle. The red flower is beautiful.`);
+                      }}
+                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase font-sans tracking-wide cursor-pointer"
+                    >
+                      Insérer un exemple de format
+                    </button>
+                  </div>
                   <textarea
                     rows={5}
                     value={newStoryRawText}
                     onChange={(e) => setNewStoryRawText(e.target.value)}
                     placeholder="Collez ici l'intégralité du texte en français. Utilisez des points pour que l'outil puisse découper correctement vos phrases."
-                    className="bg-zinc-950 border border-white/5 focus:border-emerald-500/50 rounded-lg p-3 text-xs text-white focus:outline-none font-serif leading-relaxed animate-none"
+                    className="bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-3 text-xs text-white focus:outline-none font-serif leading-relaxed animate-none"
+                  />
+                  <span className="text-[9px] text-zinc-500">
+                    Soutient également les balises optionnelles comme <span className="text-zinc-400 font-mono">#GLOSSARY</span> et <span className="text-zinc-400 font-mono">#TRANSLATION</span>.
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-zinc-400 font-bold uppercase font-sans">Glossaire (optionnel)</label>
+                  <textarea
+                    rows={3}
+                    value={newStoryGlossary}
+                    onChange={(e) => setNewStoryGlossary(e.target.value)}
+                    placeholder={`Format: mot (traduction) — exemple\nEx: château (castle) — le vieux château`}
+                    className="bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-3 text-xs text-white focus:outline-none font-sans leading-relaxed animate-none"
                   />
                 </div>
 
@@ -4620,7 +4875,7 @@ export default function App() {
                     value={newStoryTranslation}
                     onChange={(e) => setNewStoryTranslation(e.target.value)}
                     placeholder="Collez ici la traduction anglaise correspondante comme un seul bloc de texte."
-                    className="bg-zinc-950 border border-white/5 focus:border-emerald-500/50 rounded-lg p-3 text-xs text-white focus:outline-none font-serif leading-relaxed animate-none"
+                    className="bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-3 text-xs text-white focus:outline-none font-serif leading-relaxed animate-none"
                   />
                 </div>
 
@@ -4634,7 +4889,7 @@ export default function App() {
                   <button
                     onClick={handleSaveCustomStory}
                     disabled={!newStoryRawText.trim() || !newStoryTitle.trim()}
-                    className="px-5 py-2.5 bg-emerald-500 text-black font-bold text-xs uppercase tracking-wider rounded-lg hover:bg-emerald-600 transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2.5 bg-burgundy text-white font-bold text-xs uppercase tracking-wider rounded-lg hover:bg-burgundy-hover transition-colors cursor-pointer disabled:opacity-50"
                   >
                     Sauvegarder l'histoire
                   </button>

@@ -18,6 +18,7 @@ export interface Story {
   createdAt: number;
   isBuiltIn: boolean;
   fullTranslation?: string;
+  glossary?: GlossaryEntry[];
 }
 
 export interface SessionAttempt {
@@ -45,6 +46,13 @@ export interface AppSettings {
   lastLessonDate?: string; // YYYY-MM-DD format
 }
 
+export interface GlossaryEntry {
+  french: string;
+  english: string;
+  example?: string;
+  raw?: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -54,6 +62,7 @@ export interface Lesson {
   paragraph: string;
   translation: string;
   completed: boolean;
+  glossary?: GlossaryEntry[];
 }
 
 export interface DrillSessionAttempt {
