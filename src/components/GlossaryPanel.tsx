@@ -58,7 +58,10 @@ export const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
       <div className="flex items-center justify-between pb-2 border-b border-white/5">
         <div className="flex items-center gap-2">
           <BookOpen className="w-4 h-4 text-blue-400 font-bold" />
-          <span className="text-sm font-bold text-white uppercase tracking-wider">Glossaire</span>
+          <span className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <span className="w-1.5 h-1.5 bg-[#7B1E2B] rounded-full" />
+            Glossaire
+          </span>
         </div>
         <button 
           onClick={onToggle}

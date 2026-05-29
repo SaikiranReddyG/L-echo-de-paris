@@ -54,6 +54,16 @@ import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
 import { generateSentence } from "./data/sentenceGenerator";
 import { GlossaryPanel, parseGlossaryStr } from "./components/GlossaryPanel";
 
+const Fleuron: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <div className={`flex items-center justify-center gap-3 ${className}`}>
+    <span className="h-px w-16 bg-burgundy/30" />
+    <svg viewBox="0 0 24 24" width="14" height="14" className="text-burgundy/60 fill-current animate-none">
+      <path d="M12 2 L13 10 L21 11 L13 12 L12 22 L11 12 L3 11 L11 10 Z" />
+    </svg>
+    <span className="h-px w-16 bg-burgundy/30" />
+  </div>
+);
+
 // Accent typing QWERTY combinations lookup helper
 const ACCENT_HINTS: { [key: string]: { char: string; qwerty: string } } = {
   "é": { char: "é", qwerty: "Type: ' then e (or click 'é' icon)" },
@@ -2011,23 +2021,30 @@ export default function App() {
       {/* -----------------------------------------------------------------------
           TOP NAVIGATION HEADER
           ----------------------------------------------------------------------- */}
-      <nav id="nav-top" className="h-16 border-b border-white/5 flex items-center justify-between px-6 sm:px-8 bg-[#111216]/90 relative z-10">
-        <div className="flex items-center gap-3">
-          <Languages className="w-5 h-5 text-burgundy" />
-          <div className="flex flex-col select-none leading-none">
-            <span 
-              onClick={() => setCurrentScreen("library")}
-              className="text-lg sm:text-xl font-serif italic font-bold tracking-wide text-white cursor-pointer hover:opacity-85 border-b-2 border-double border-burgundy/30 pb-0.5 inline-block"
-            >
-              L'Écho de Paris
-            </span>
-            <span className="text-[10px] text-zinc-500 font-sans tracking-widest uppercase mt-0.5">French Typing</span>
+      <nav id="nav-top" className="h-14 min-h-[56px] border-b border-white/5 flex items-center justify-between px-6 sm:px-8 bg-[#111216]/90 relative z-10">
+        <div className="flex items-baseline gap-4">
+          <div className="flex items-baseline gap-2.5">
+            <Languages className="w-4.5 h-4.5 text-burgundy relative top-[2px]" />
+            <div className="flex flex-col select-none leading-none">
+              <span 
+                onClick={() => {
+                  if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setCurrentScreen("library");
+                }}
+                className="text-2xl font-serif italic font-bold tracking-wide text-white cursor-pointer hover:opacity-85 border-b-2 border-double border-burgundy/30 pb-0.5 inline-block"
+              >
+                L'Écho de Paris
+              </span>
+              <span className="text-[9px] tracking-[0.25em] uppercase text-zinc-500 font-sans mt-0.5">Journal d'Apprentissage</span>
+            </div>
           </div>
           
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
           {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free")) && (
-            <div className="flex items-center gap-1.5 ml-4 border-l border-white/10 pl-4">
+            <div className="flex items-baseline gap-4 ml-6 border-l border-white/10 pl-6 h-full pb-0.5">
               <button
                 onClick={() => {
                   if ("speechSynthesis" in window) {
@@ -2035,20 +2052,20 @@ export default function App() {
                   }
                   setCurrentScreen("library");
                 }}
-                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                className={`px-1 pb-1 text-xs font-semibold border-b-2 bg-transparent rounded-none border-t-0 border-l-0 border-r-0 transition-all cursor-pointer ${
                   currentScreen === "library"
-                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
-                    : "text-zinc-400 hover:text-white border-transparent"
+                    ? "border-[#7B1E2B] text-white"
+                    : "border-transparent text-zinc-400 hover:text-white"
                 }`}
               >
                 Bibliothèque
               </button>
               <button
                 onClick={() => handleStartFreeMode(false)}
-                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                className={`px-1 pb-1 text-xs font-semibold border-b-2 bg-transparent rounded-none border-t-0 border-l-0 border-r-0 transition-all cursor-pointer ${
                   currentScreen === "practice" && practiceType === "free"
-                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
-                    : "text-zinc-400 hover:text-white border-transparent"
+                    ? "border-[#7B1E2B] text-white"
+                    : "border-transparent text-zinc-400 hover:text-white"
                 }`}
               >
                 Mode Libre
@@ -2060,10 +2077,10 @@ export default function App() {
                   }
                   setCurrentScreen("learn");
                 }}
-                className={`px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold rounded-lg border transition-all cursor-pointer relative ${
+                className={`px-1 pb-1 text-xs font-semibold border-b-2 bg-transparent rounded-none border-t-0 border-l-0 border-r-0 transition-all cursor-pointer relative ${
                   currentScreen === "learn" || currentScreen === "lesson-setup"
-                    ? "bg-burgundy-soft text-burgundy border-burgundy-border"
-                    : "text-zinc-400 hover:text-white border-transparent"
+                    ? "border-[#7B1E2B] text-white"
+                    : "border-transparent text-zinc-400 hover:text-white"
                 }`}
               >
                 Apprendre
@@ -2186,7 +2203,7 @@ export default function App() {
             
             {/* Header Display Board */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
-              <div>
+              <div className="border-l-2 border-[#7B1E2B] pl-4">
                 <h2 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">Bibliothèque d'Exercices</h2>
                 <p className="text-sm text-zinc-400 mt-1 max-w-xl">
                   Pratiquez la dactylographie française avec des récits littéraires authentiques. Améliorez votre vitesse d'écriture et maîtrisez tous les accents orthographiques requis.
@@ -2216,6 +2233,8 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            <Fleuron className="my-4" />
 
             {/* Quick Summary Dashboard metrics row */}
             {sessions.length > 0 && (
@@ -2290,12 +2309,20 @@ export default function App() {
               </div>
             </div>
 
+            <Fleuron className="my-2" />
+
             {/* Custom Grid Layout display stories */}
             {filteredStories.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-12 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-2xl">
-                <BookOpen className="w-10 h-10 text-zinc-600 mb-3" />
-                <h4 className="text-white text-base font-medium">Aucune histoire trouvée</h4>
-                <p className="text-xs text-zinc-500 mt-1">Veuillez ajuster vos filtres de recherche ou ajouter une nouvelle histoire personnalisée.</p>
+              <div className="flex flex-col items-center justify-center p-12 text-center bg-[#1a1614] border border-[#d9c4b1]/15 rounded-2xl relative overflow-hidden"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")`
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="80" height="80" fill="none" stroke="currentColor" strokeWidth="1" className="text-burgundy/15 mb-4">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                </svg>
+                <p className="text-sm font-serif italic text-zinc-400">"Votre bibliothèque attend ses premiers récits."</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2303,14 +2330,18 @@ export default function App() {
                 {searchQuery === "" && (
                   <div 
                     onClick={() => handleStartFreeMode(false)}
-                    className="group flex flex-col justify-between bg-gradient-to-b from-zinc-900/60 to-zinc-950/60 hover:from-[rgba(123,30,43,0.02)] hover:to-zinc-950/90 border border-burgundy-border hover:border-burgundy/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)]"
+                    className="group flex flex-col justify-between bg-[#1a1614] border border-burgundy-border/40 hover:border-burgundy/40 rounded-2xl pl-8 pr-6 py-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)] hover:-translate-y-0.5 hover:shadow-[0_8px_35px_rgba(123,30,43,0.1)]"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")`
+                    }}
                   >
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/70" />
+                    {/* Spine Left band */}
+                    <div className="absolute left-0 top-0 bottom-0 w-[6px] bg-burgundy group-hover:shadow-[2px_0_15px_rgba(123,30,43,0.5)] transition-all duration-300" />
 
                     <div>
                       <div className="flex justify-between items-start gap-4 mb-3">
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-burgundy-soft text-burgundy border border-burgundy-border">
-                          Personnalisé
+                        <span className="text-[10px] uppercase tracking-wider text-burgundy font-sans block">
+                          récit · niveau personnalisé
                         </span>
 
                         <div className="flex items-center gap-1.5 text-[11px] text-burgundy/80 font-mono">
@@ -2319,7 +2350,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors flex items-center gap-2">
+                      <h3 className="text-xl font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors flex items-center gap-2">
                         <Keyboard className="w-4 h-4 text-burgundy" /> Mode Libre Actif
                       </h3>
 
@@ -2329,7 +2360,7 @@ export default function App() {
                     </div>
 
                     <div className="pt-4 border-t border-burgundy-border/15 flex items-center justify-between mt-4">
-                      <span className="text-[11px] text-burgundy/60 font-medium font-mono">Option Intégrée</span>
+                      <span className="text-[10px] tracking-wider text-zinc-500 uppercase font-sans">Option Intégrée</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2337,7 +2368,7 @@ export default function App() {
                         }}
                         className="bg-burgundy hover:bg-burgundy-hover text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
                       >
-                        Ouvrir <ChevronRight className="w-3 h-3" />
+                        Lire & Écrire <ChevronRight className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -2348,39 +2379,43 @@ export default function App() {
                   const sentencesCount = story.sentences.length;
                   const totalWords = story.sentences.reduce((acc, sent) => acc + sent.french.split(/\s+/).length, 0);
 
+                  const levelLabel = story.level === "beginner" ? "débutant" : 
+                                     story.level === "easy" ? "facile" : "intermédiaire";
+
+                  const spineColorClass = story.level === "beginner" ? "bg-emerald-500 group-hover:shadow-[2px_0_15px_rgba(16,185,129,0.5)]" :
+                                          story.level === "easy" ? "bg-amber-500 group-hover:shadow-[2px_0_15px_rgba(245,158,11,0.5)]" :
+                                          "bg-indigo-500 group-hover:shadow-[2px_0_15px_rgba(99,102,241,0.5)]";
+
                   return (
                     <div 
                       key={story.id} 
-                      className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden"
+                      className="group flex flex-col justify-between bg-[#1a1614] border border-white/5 hover:border-white/10 rounded-2xl pl-8 pr-6 py-6 transition-all duration-300 relative overflow-hidden hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(0,0,0,0.3)] cursor-pointer"
+                      style={{
+                        backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")`
+                      }}
                     >
-                      {/* Interactive Subtle accent top-line depending on level difficulty */}
-                      <div className={`absolute top-0 left-0 right-0 h-[2px] transition-all duration-300 ${
-                        story.level === "beginner" ? "bg-burgundy/40 group-hover:bg-burgundy" :
-                        story.level === "easy" ? "bg-amber-500/40 group-hover:bg-amber-500" :
-                        "bg-indigo-500/40 group-hover:bg-indigo-500"
-                      }`} />
+                      {/* Left edge band (Spine) element */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-[6px] transition-all duration-300 ${spineColorClass}`} />
 
                       <div>
                         {/* Upper Details Meta */}
                         <div className="flex justify-between items-start gap-4 mb-3">
+                          <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-sans block">
+                            récit · niveau {levelLabel}
+                          </span>
+
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                            story.level === "beginner" ? "bg-burgundy-soft text-burgundy border border-burgundy-border" :
+                            story.level === "beginner" ? "bg-emerald-950/40 text-emerald-400 border border-emerald-500/20" :
                             story.level === "easy" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
                           }`}>
                             {story.level === "beginner" ? "Débutant" : 
                              story.level === "easy" ? "Facile" : "Intermédiaire"}
                           </span>
-
-                          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-                            <span>{sentencesCount} phrases</span>
-                            <span>•</span>
-                            <span>{totalWords} mots</span>
-                          </div>
                         </div>
 
                         {/* Title of Story */}
-                        <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
+                        <h3 className="text-xl font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                           {story.title}
                         </h3>
 
@@ -2392,22 +2427,20 @@ export default function App() {
 
                       {/* Best Attempts Stats block or Library launch indicators */}
                       <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
-                        {pb ? (
-                          <div className="flex gap-4">
-                            <div className="flex flex-col">
-                              <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">Record</span>
-                              <span className="text-xs font-mono font-bold text-white leading-tight">{pb.wpm} WPM</span>
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">Précision</span>
-                              <span className="text-xs font-mono font-bold text-burgundy leading-tight">{pb.accuracy}%</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
-                        )}
+                        <div className="flex flex-col gap-1 min-w-0">
+                          <span className="text-[10px] tracking-wider text-zinc-500 uppercase font-sans block truncate">
+                            {sentencesCount} phrases · {totalWords} mots
+                          </span>
+                          {pb ? (
+                            <span className="text-[9px] text-zinc-400 font-mono">
+                              Record: <strong className="text-white">{pb.wpm} WPM</strong> | <strong className="text-burgundy">{pb.accuracy}%</strong>
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-zinc-500 italic block font-serif">Non commencé</span>
+                          )}
+                        </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           {!story.isBuiltIn && (
                             <button
                               onClick={(e) => {
@@ -2422,9 +2455,9 @@ export default function App() {
                           )}
                           <button
                             onClick={() => handleStartPractice(story)}
-                            className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                            className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                           >
-                            Écrire <ChevronRight className="w-3 h-3" />
+                            Lire & Écrire <ChevronRight className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
@@ -2492,7 +2525,7 @@ export default function App() {
             
             {/* Header Display Board */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
-              <div>
+              <div className="border-l-2 border-[#7B1E2B] pl-4">
                 <h2 className="text-3xl sm:text-4xl font-serif text-white tracking-tight">Apprentissage Interactif</h2>
                 <p className="text-sm text-zinc-400 mt-1 max-w-xl font-sans">
                   Développez votre mémoire musculaire sur l'agencement AZERTY. Domptez les touches déplacées et maîtrisez l'accès rapide aux caractères accentués.
@@ -2500,26 +2533,32 @@ export default function App() {
               </div>
             </div>
 
+            <Fleuron className="my-2" />
+
             {/* Grid of 3 Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               
               {/* Card 1: Lettres AZERTY */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/40 group-hover:bg-burgundy transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#7B1E2B]/80 absolute top-4 right-4 bg-transparent">N° 01</span>
+                
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
                     {settings.lettersComplete ? (
-                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-teal-500/30 text-teal-400 bg-transparent">
                         Complété ✓
                       </span>
                     ) : (
                       <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
                     )}
-                    <span className="text-[11px] text-zinc-500">15 séquences</span>
+                    <span className="text-[11px] text-zinc-500 pr-10">15 séquences</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Lettres AZERTY
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2527,34 +2566,38 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("letters")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 2: Accents essentiels */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-amber-500/40 group-hover:bg-amber-500 transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#F59E0B]/80 absolute top-4 right-4 bg-transparent">N° 02</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
                     {settings.accentsComplete ? (
-                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-teal-500/30 text-teal-400 bg-transparent">
                         Complété ✓
                       </span>
                     ) : (
                       <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
                     )}
-                    <span className="text-[11px] text-zinc-500 flex items-center gap-1">4 étapes</span>
+                    <span className="text-[11px] text-zinc-500 pr-10">4 étapes</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Accents essentiels
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2562,38 +2605,38 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("accents")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 3: Calibration complète */}
-              <div className={`group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border rounded-2xl p-6 transition-all duration-300 relative overflow-hidden ${
-                !settings.calibrationComplete 
-                  ? "border-burgundy-border hover:border-burgundy/50 shadow-[0_0_20px_rgba(123,30,43,0.025)]" 
-                  : "border-white/5 hover:border-white/10"
-              }`}>
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-indigo-500/40 group-hover:bg-indigo-500 transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#6366F1]/80 absolute top-4 right-4 bg-transparent">N° 03</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
                     {settings.calibrationComplete ? (
-                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-teal-500/30 text-teal-400 bg-transparent">
                         Complété ✓
                       </span>
                     ) : (
                       <span className="text-[11px] text-zinc-500 italic">Non commencé</span>
                     )}
-                    <span className="text-[11px] text-zinc-500">2 parties</span>
+                    <span className="text-[11px] text-zinc-500 pr-10">2 parties</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Calibration complète
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2601,30 +2644,34 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 font-sans">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 font-sans relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">S'évaluer</span>
                   <button
                     onClick={() => startDrillSession("calibration")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 4: Fluidité progressive (Flow) */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-teal-500 group-hover:bg-teal-400 transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#14B8A6]/80 absolute top-4 right-4 bg-transparent">N° 04</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-teal-500/30 text-teal-400 bg-transparent">
                       Sans limites
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono">Cycle infini</span>
+                    <span className="text-[11px] text-zinc-500 font-mono pr-10">Cycle infini</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-teal-400 transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-teal-400 transition-colors">
                     Fluidité progressive
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2632,30 +2679,34 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("flow")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 5: Mots courts */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-sky-500/60 group-hover:bg-sky-500 transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#0EA5E9]/80 absolute top-4 right-4 bg-transparent">N° 05</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-sky-500/30 text-sky-400 bg-transparent">
                       Endurant
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono">+200 mots</span>
+                    <span className="text-[11px] text-zinc-500 font-mono pr-10">+200 mots</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-sky-400 transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-sky-400 transition-colors">
                     Mots courts
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2663,30 +2714,34 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("wordsShort")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 6: Mots longs */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-indigo-500/60 group-hover:bg-indigo-400 transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#6366F1]/80 absolute top-4 right-4 bg-transparent">N° 06</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-indigo-500/30 text-indigo-400 bg-transparent">
                       Expert
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono">+150 mots</span>
+                    <span className="text-[11px] text-zinc-500 font-mono pr-10">+150 mots</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-indigo-400 transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-indigo-400 transition-colors">
                     Mots longs
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2694,30 +2749,34 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("wordsLong")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 7: Phrases complètes */}
-              <div className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-white/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-burgundy/60 group-hover:bg-burgundy transition-all duration-300" />
+              <div className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#7B1E2B]/80 absolute top-4 right-4 bg-transparent">N° 07</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-burgundy-soft text-burgundy border border-burgundy-border">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-[#7B1E2B]/30 text-burgundy bg-transparent">
                       Maîtrise
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono">Générateur libre</span>
+                    <span className="text-[11px] text-zinc-500 font-mono pr-10">Générateur libre</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-burgundy transition-colors">
                     Phrases complètes
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2725,30 +2784,34 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
                   <button
                     onClick={() => startDrillSession("phrases")}
                     className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 8: Dictée (Dictation Audio Play) */}
-              <div id="card-dictation" className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-purple-500/20 hover:border-purple-500/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden shadow-[0_0_20px_rgba(168,85,247,0.025)]">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-purple-500 group-hover:bg-purple-400 transition-all duration-300" />
+              <div id="card-dictation" className="group flex flex-col justify-between bg-white/[0.015] border border-purple-500/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden shadow-[0_0_20px_rgba(168,85,247,0.01)] hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] hover:border-purple-500/30 cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-purple-500/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#A855F7]/80 absolute top-4 right-4 bg-transparent">N° 08</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-purple-500/30 text-purple-400 bg-transparent">
                       Nouveau ! d'Oreille
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono">Audio seul</span>
+                    <span className="text-[11px] text-zinc-500 font-mono pr-10">Audio seul</span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-purple-400 transition-colors flex items-center gap-2">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-purple-400 transition-colors flex items-center gap-2">
                     <Volume2 className="w-4 h-4 text-purple-400" /> Dictée AZERTY
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2756,32 +2819,36 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">S'entraîner</span>
                   <button
                     onClick={() => setIsDictationConfigOpen(true)}
                     className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans shadow-[0_0_15px_rgba(168,85,247,0.15)] bg-gradient-to-r from-purple-600 to-indigo-600"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               {/* Card 9: Leçon du jour */}
-              <div id="card-daily-lesson" className="group flex flex-col justify-between bg-white/[0.02] hover:bg-white/[0.04] border border-blue-500/20 hover:border-blue-500/40 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.025)]">
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-blue-500 group-hover:bg-blue-400 transition-all duration-300" />
+              <div id="card-daily-lesson" className="group flex flex-col justify-between bg-white/[0.015] border border-blue-500/10 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.01)] hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] hover:border-blue-500/30 cursor-pointer">
+                {/* Practice ticket inside dashed border */}
+                <div className="absolute inset-1.5 border border-dashed border-blue-500/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
                 
-                <div>
+                {/* Utilitarian numbering stamp */}
+                <span className="text-[10px] font-mono font-bold tracking-wider text-[#3B82F6]/80 absolute top-4 right-4 bg-transparent">N° 09</span>
+
+                <div className="relative z-10">
                   <div className="flex justify-between items-start mb-3 font-sans">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border border-blue-500/30 text-blue-400 bg-transparent">
                       Quotidien
                     </span>
-                    <span className="text-[11px] text-zinc-500 font-mono flex items-center gap-1">
+                    <span className="text-[11px] text-zinc-500 font-mono flex items-center gap-1 pr-10">
                       🔥 Série : {settings.streakCount || 0}
                     </span>
                   </div>
 
-                  <h3 className="text-lg font-serif text-white leading-tight mb-2 group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                  <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-blue-400 transition-colors flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-blue-400" /> Leçon du jour
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
@@ -2789,13 +2856,13 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4">
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">S'initier</span>
                   <button
                     onClick={() => setCurrentScreen("lesson-setup")}
                     className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans shadow-[0_0_15px_rgba(59,130,246,0.15)] bg-gradient-to-r from-blue-600 to-indigo-600"
                   >
-                    COMMENCER <ChevronRight className="w-3 h-3" />
+                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
@@ -3067,73 +3134,104 @@ export default function App() {
                 <div className="flex flex-col gap-3 overflow-y-auto max-h-[460px] pr-1 scrollbar-thin flex-1">
                   {pastLessons.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 px-4 text-center border border-dashed border-white/5 rounded-xl bg-white/[0.01]">
-                      <BookOpen className="w-8 h-8 text-zinc-600 mb-2" />
-                      <span className="text-xs text-zinc-500">Aucune leçon enregistrée</span>
+                      {/* Notebook SVG */}
+                      <svg viewBox="0 0 24 24" width="80" height="80" fill="none" stroke="currentColor" strokeWidth="1" className="text-burgundy/15 mb-4 max-w-[80px]">
+                        <rect x="5" y="2" width="14" height="20" rx="2" />
+                        <line x1="9" y1="6" x2="15" y2="6" strokeDasharray="1 1" />
+                        <line x1="9" y1="10" x2="15" y2="10" strokeDasharray="1 1" />
+                        <line x1="9" y1="14" x2="15" y2="14" strokeDasharray="1 1" />
+                        <line x1="9" y1="18" x2="15" y2="18" strokeDasharray="1 1" />
+                        <line x1="2" y1="6" x2="5" y2="6" stroke="currentColor" />
+                        <line x1="2" y1="12" x2="5" y2="12" stroke="currentColor" />
+                        <line x1="2" y1="18" x2="5" y2="18" stroke="currentColor" />
+                      </svg>
+                      <span className="text-xs font-serif italic text-zinc-500 leading-relaxed">
+                        "Aucune leçon enregistrée. Commencez par coller votre première leçon."
+                      </span>
                     </div>
                   ) : (
-                    pastLessons.map((les) => (
-                      <div 
-                        key={les.id} 
-                        className="p-3.5 rounded-xl border border-white/5 bg-zinc-950/40 hover:bg-zinc-950/80 transition-all flex flex-col gap-2.5"
-                      >
-                        <div className="flex justify-between items-start gap-2">
-                          <div>
-                            <span className="text-xs font-medium text-white block truncate max-w-[160px] font-sans" title={les.title}>
-                              {les.title}
-                            </span>
-                            <span className="text-[10px] text-zinc-500 block">
-                              {new Date(les.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                            </span>
+                    pastLessons.map((les) => {
+                      const lessonDateObj = new Date(les.date);
+                      const dayStr = lessonDateObj.getDate();
+                      const monthStr = lessonDateObj.toLocaleDateString("fr-FR", { month: "short" }).replace(".", "");
+
+                      return (
+                        <div 
+                          key={les.id} 
+                          className="group p-4 rounded-xl border border-[#d9c4b1]/10 bg-[#15110e] hover:rotate-[-0.3deg] transition-all duration-200 flex flex-col gap-3 relative overflow-hidden shadow-md cursor-pointer"
+                          style={{
+                            backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>"), linear-gradient(to bottom, transparent 15px, rgba(217, 196, 177, 0.03) 15px)`,
+                            backgroundSize: '100% 100%, 100% 16px'
+                          }}
+                        >
+                          <div className="flex gap-3.5 items-start">
+                            {/* Date Stamp Component */}
+                            <div className="flex flex-col items-center justify-center shrink-0 w-11 h-12 bg-white/[0.02] border border-[#d9c4b1]/10 rounded-lg text-center leading-none p-1.5 shadow-sm group-hover:bg-white/[0.06] transition-all duration-200">
+                              <span className="text-lg font-serif font-bold text-white leading-none">{dayStr}</span>
+                              <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-sans mt-0.5">{monthStr}</span>
+                            </div>
+
+                            {/* Title & Badge */}
+                            <div className="flex-1 min-w-0 flex flex-col justify-between">
+                              <span className="text-xs font-serif font-medium italic text-white line-clamp-2 leading-tight group-hover:text-burgundy transition-colors" title={les.title}>
+                                {les.title}
+                              </span>
+                              
+                              <div className="mt-1.5 flex items-center gap-2">
+                                {les.completed ? (
+                                  <span className="text-[10px] font-serif italic text-teal-400 bg-transparent underline decoration-teal-400/30">
+                                    Fait ✓
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-serif italic text-zinc-400 bg-transparent underline decoration-zinc-500/30">
+                                    Plein
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          
-                          {les.completed ? (
-                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-teal-500/10 text-teal-400 border border-teal-500/20">
-                              Fait ✓
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-zinc-500/10 text-zinc-500 border border-white/5">
-                              Plein
-                            </span>
-                          )}
-                        </div>
 
-                        <div className="text-[10px] text-zinc-400 flex flex-wrap gap-x-2.5 gap-y-1 bg-black/30 p-2 rounded-lg font-mono">
-                          <span>{les.words.length} Mots</span>
-                          <span className="text-zinc-700">•</span>
-                          <span>{les.sentences.length} Phr.</span>
-                          {les.translation && (
-                            <>
-                              <span className="text-zinc-700">•</span>
-                              <span className="text-zinc-500 uppercase font-sans text-[8px]">En ✓</span>
-                            </>
-                          )}
-                        </div>
+                          {/* Ruled metadata row */}
+                          <div className="text-[10px] text-zinc-500 flex flex-wrap gap-x-2.5 gap-y-1 p-1 font-mono relative z-10 border-t border-white/[0.03] pt-2">
+                            <span>{les.words.length} mots</span>
+                            <span>•</span>
+                            <span>{les.sentences.length} phrases</span>
+                            {les.translation && (
+                              <>
+                                <span>•</span>
+                                <span className="text-zinc-[600] font-serif italic text-[10px]">avec traduction</span>
+                              </>
+                            )}
+                          </div>
 
-                        <div className="flex gap-2 font-sans">
-                          <button
-                            onClick={() => startDrillSession("lesson", 1, les)}
-                            className="flex-1 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 text-[10px] font-bold uppercase tracking-wider rounded-lg border border-blue-500/15 transition-all cursor-pointer"
-                          >
-                            Rejouer
-                          </button>
-                          <button
-                            onClick={async () => {
-                              try {
-                                await deleteLesson(les.id);
-                                const fresh = await getLessons();
-                                setPastLessons(fresh.sort((a,b) => b.date - a.date));
-                              } catch (err) {
-                                console.error(err);
-                              }
-                            }}
-                            className="p-1.5 bg-rose-500/5 hover:bg-rose-500/15 text-rose-500 hover:text-rose-400 text-[10px] font-bold rounded-lg border border-rose-500/10 transition-all cursor-pointer"
-                            title="Supprimer cette leçon"
-                          >
-                            🗑️
-                          </button>
+                          {/* Actions */}
+                          <div className="flex gap-2 font-sans relative z-10">
+                            <button
+                              onClick={() => startDrillSession("lesson", 1, les)}
+                              className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider rounded-lg border border-[#d9c4b1]/10 transition-all cursor-pointer"
+                            >
+                              Réviser
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  await deleteLesson(les.id);
+                                  const fresh = await getLessons();
+                                  setPastLessons(fresh.sort((a,b) => b.date - a.date));
+                                } catch (err) {
+                                  console.error(err);
+                                }
+                              }}
+                              className="p-1.5 bg-[#881337]/10 hover:bg-[#881337]/25 text-rose-500 hover:text-rose-400 text-[12px] font-bold rounded-lg border border-rose-500/10 transition-all cursor-pointer flex items-center justify-center shrink-0 w-8"
+                              title="Supprimer cette leçon"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -3651,6 +3749,7 @@ export default function App() {
               {!freeModeActive ? (
                 // Setup interface when inactive
                 <div className="flex flex-col min-h-[340px]">
+                  <Fleuron className="mb-6" />
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 font-sans">
                       Texte Source Français
@@ -4282,9 +4381,7 @@ export default function App() {
             
             {/* Header / Celebration Title */}
             <div className="text-center flex flex-col items-center gap-2 font-sans">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-              </div>
+              <Fleuron className="mb-4" />
               <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Session terminée !</h2>
               <p className="text-sm text-zinc-400 max-w-md">
                 {practiceType === "letters" ? (
@@ -4414,10 +4511,8 @@ export default function App() {
           <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
             
             {/* Header / Celebration Title */}
-            <div className="text-center flex flex-col items-center gap-2">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-2 animate-bounce">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-              </div>
+            <div className="text-center flex flex-col items-center gap-2 font-sans">
+              <Fleuron className="mb-4" />
               <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Session Libre Complétée !</h2>
               <p className="text-sm text-zinc-400 max-w-md">
                 Félicitations ! Vous avez terminé avec succès la saisie de votre texte personnalisé.
@@ -4486,10 +4581,8 @@ export default function App() {
           <div className="w-full max-w-3xl mx-auto animate-fade-in flex flex-col gap-8 py-8">
             
             {/* Header / Celebration Title */}
-            <div className="text-center flex flex-col items-center gap-2">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 mb-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-              </div>
+            <div className="text-center flex flex-col items-center gap-2 font-sans">
+              <Fleuron className="mb-4" />
               <h2 className="text-2xl sm:text-3xl font-serif text-white tracking-tight">Félicitations !</h2>
               <p className="text-sm text-zinc-400 max-w-md">
                 Vous avez terminé l'écriture de l'histoire <span className="text-white font-medium">"{selectedStory.title}"</span>.
@@ -4607,136 +4700,171 @@ export default function App() {
               </button>
             </div>
 
-            <div className="p-6 flex flex-col gap-6 max-h-[80vh] overflow-y-auto">
+            <div className="p-6 flex flex-col gap-6 max-h-[80vh] overflow-y-auto font-sans">
               
-              {/* Option 1: Vocal Speech Rate config slider */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Vitesse Audio de Lecture</label>
-                <p className="text-[11px] text-zinc-500 leading-normal">
-                  Contrôlez la rapidité de lecture des phrases en français par le synthétiseur vocal.
-                </p>
-                <div className="flex gap-2 mt-1">
-                  {[
-                    { id: "slow", label: "Lent" },
-                    { id: "normal", label: "Normal (Par Défaut)" }
-                  ].map(eSpeed => (
+              {/* Option 1: Audio & Voix */}
+              <div className="flex flex-col gap-4">
+                <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-[#7B1E2B] rounded-full" />
+                  Audio & Voix
+                </h4>
+
+                <div className="flex flex-col gap-2 pl-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Vitesse Audio de Lecture</span>
+                  <p className="text-[11px] text-zinc-500 leading-normal">
+                    Contrôlez la rapidité de lecture des phrases en français par le synthétiseur vocal.
+                  </p>
+                  <div className="flex gap-2 mt-1">
+                    {[
+                      { id: "slow", label: "Lent" },
+                      { id: "normal", label: "Normal (Par Défaut)" }
+                    ].map(eSpeed => (
+                      <button
+                        key={eSpeed.id}
+                        onClick={() => handleUpdateSettings({ ...settings, audioSpeed: eSpeed.id as any })}
+                        className={`flex-1 py-2 text-xs font-medium border rounded-lg transition-colors cursor-pointer ${
+                          settings.audioSpeed === eSpeed.id 
+                            ? "bg-burgundy-soft text-burgundy border-burgundy-border" 
+                            : "bg-white/5 text-zinc-400 border-white/5 hover:border-white/10"
+                        }`}
+                      >
+                        {eSpeed.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pl-3.5 pt-2">
+                  <div className="max-w-[70%]">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Effets Sonores Actifs</span>
+                    <p className="text-[11px] text-zinc-500 leading-normal mt-1">
+                      Bruits de clavier : son clair sur réussite, buzzer sourd en cas de faute de frappe.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleUpdateSettings({ ...settings, soundEffects: !settings.soundEffects })}
+                    className={`w-12 h-6 rounded-full p-1 transition-all flex items-center ${
+                      settings.soundEffects ? "bg-burgundy justify-end" : "bg-zinc-800 justify-start"
+                    }`}
+                  >
+                    <div className="w-4 h-4 rounded-full bg-black"></div>
+                  </button>
+                </div>
+              </div>
+
+              <Fleuron className="my-1 shrink-0" />
+
+              {/* Option 2: Affichage & Thème */}
+              <div className="flex flex-col gap-4">
+                <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-[#7B1E2B] rounded-full" />
+                  Affichage & Thème
+                </h4>
+
+                <div className="flex flex-col gap-2 pl-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Mode d'affichage visuel</span>
+                  <div className="flex gap-2">
                     <button
-                      key={eSpeed.id}
-                      onClick={() => handleUpdateSettings({ ...settings, audioSpeed: eSpeed.id as any })}
-                      className={`flex-1 py-2 text-xs font-medium border rounded-lg transition-colors cursor-pointer ${
-                        settings.audioSpeed === eSpeed.id 
-                          ? "bg-burgundy-soft text-burgundy border-burgundy-border" 
-                          : "bg-white/5 text-zinc-400 border-white/5 hover:border-white/10"
+                      onClick={() => handleUpdateSettings({ ...settings, theme: "dark" })}
+                      className={`flex-1 py-1.5 text-xs font-medium rounded border ${
+                        settings.theme === "dark" 
+                          ? "bg-zinc-800 text-white border-white/20" 
+                          : "bg-transparent text-zinc-400 border-white/5 hover:text-white"
                       }`}
                     >
-                      {eSpeed.label}
+                      Sophisticated Dark
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Option 2: Correctness click & buz key Sound FX toggle */}
-              <div className="flex items-center justify-between border-t border-white/5 pt-4">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Effets Sonores Actifs</label>
-                  <p className="text-[11px] text-zinc-500 leading-normal mt-1">
-                    Bruits de clavier : son clair sur réussite, buzzer sourd en cas de faute de frappe.
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleUpdateSettings({ ...settings, soundEffects: !settings.soundEffects })}
-                  className={`w-12 h-6 rounded-full p-1 transition-all flex items-center ${
-                    settings.soundEffects ? "bg-burgundy justify-end" : "bg-zinc-800 justify-start"
-                  }`}
-                >
-                  <div className="w-4 h-4 rounded-full bg-black"></div>
-                </button>
-              </div>
-
-              {/* Option 3: Interface Contrast Theme Selector */}
-              <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
-                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Mode d'affichage visuel</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleUpdateSettings({ ...settings, theme: "dark" })}
-                    className={`flex-1 py-1.5 text-xs font-medium rounded border ${
-                      settings.theme === "dark" 
-                        ? "bg-zinc-800 text-white border-white/20" 
-                        : "bg-transparent text-zinc-400 border-white/5 hover:text-white"
-                    }`}
-                  >
-                    Sophisticated Dark
-                  </button>
-                  <button
-                    onClick={() => handleUpdateSettings({ ...settings, theme: "light" })}
-                    className={`flex-1 py-1.5 text-xs font-medium rounded border ${
-                      settings.theme === "light" 
-                        ? "bg-white text-zinc-900 border-white" 
-                        : "bg-transparent text-zinc-400 border-white/5 hover:text-white"
-                    }`}
-                  >
-                    Clair Minimaliste
-                  </button>
-                </div>
-              </div>
-
-              {/* Option 4: Premium OpenAI Voice Speech Key Config */}
-              <div className="flex flex-col gap-2 border-t border-white/5 pt-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Premium Audio TTS Cloud (Optionnel)</label>
-                  <span className="text-[9px] bg-burgundy-soft text-burgundy px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Mosaïque HD</span>
-                </div>
-                <p className="text-[11px] text-zinc-500 leading-normal">
-                  Renseignez une clé d'API OpenAI pour synthétiser des voix ultra-réalistes de qualité studio.
-                </p>
-                <input 
-                  type="password"
-                  value={settings.ttsApiKey}
-                  onChange={(e) => handleUpdateSettings({ ...settings, ttsApiKey: e.target.value })}
-                  placeholder="sk-or-elevenlabs-key-..."
-                  className="w-full bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-2.5 text-xs text-white focus:outline-none placeholder-zinc-700"
-                />
-              </div>
-
-              {/* Option 5: Back up Restore JSON buttons */}
-              <div className="flex flex-col gap-3 border-t border-white/5 pt-4">
-                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Sauvegarde & Restauration</label>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={handleExportBackup}
-                    className="flex items-center justify-center gap-2 py-2 pr-2 text-xs font-bold bg-white/5 hover:bg-white/10 hover:text-white rounded-lg border border-white/5 text-zinc-300 transition-colors pointer-events-auto cursor-pointer"
-                  >
-                    <Download className="w-4 h-4 text-zinc-400" /> Exporter JSON
-                  </button>
-
-                  <label 
-                    className="flex items-center justify-center gap-2 py-2 text-xs font-bold bg-white/5 hover:bg-white/10 hover:text-white rounded-lg border border-white/5 text-zinc-300 transition-colors cursor-pointer"
-                  >
-                    <Upload className="w-4 h-4 text-zinc-400" /> Importer JSON
-                    <input 
-                      type="file" 
-                      accept=".json"
-                      onChange={handleImportBackup}
-                      className="hidden" 
-                    />
-                  </label>
-                </div>
-
-                {/* Import State Feedback Alert */}
-                {importStatus && (
-                  <div className={`p-3 rounded-lg text-xs mt-1 ${
-                    importStatus.type === "success" 
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
-                      : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                  }`}>
-                    {importStatus.msg}
+                    <button
+                      onClick={() => handleUpdateSettings({ ...settings, theme: "light" })}
+                      className={`flex-1 py-1.5 text-xs font-medium rounded border ${
+                        settings.theme === "light" 
+                          ? "bg-white text-zinc-900 border-white" 
+                          : "bg-transparent text-zinc-400 border-white/5 hover:text-white"
+                      }`}
+                    >
+                      Clair Minimaliste
+                    </button>
                   </div>
-                )}
+                </div>
               </div>
 
-              {/* Option 6: Warning communications block */}
-              <div className="p-4 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl flex items-start gap-3 mt-2 text-xs leading-relaxed">
+              <Fleuron className="my-1 shrink-0" />
+
+              {/* Option 3: Clé d'API Premium */}
+              <div className="flex flex-col gap-4">
+                <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-[#7B1E2B] rounded-full" />
+                  Clé d'API Premium
+                </h4>
+
+                <div className="flex flex-col gap-2 pl-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Premium Audio TTS Cloud (Optionnel)</span>
+                    <span className="text-[9px] bg-burgundy-soft text-burgundy px-1.5 py-0.5 rounded font-bold uppercase tracking-wider font-sans">Mosaïque HD</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 leading-normal">
+                    Renseignez une clé d'API OpenAI pour synthétiser des voix ultra-réalistes de qualité studio.
+                  </p>
+                  <input 
+                    type="password"
+                    value={settings.ttsApiKey}
+                    onChange={(e) => handleUpdateSettings({ ...settings, ttsApiKey: e.target.value })}
+                    placeholder="sk-or-elevenlabs-key-..."
+                    className="w-full bg-zinc-950 border border-white/5 focus:border-burgundy-border rounded-lg p-2.5 text-xs text-white focus:outline-none placeholder-zinc-700 font-sans"
+                  />
+                </div>
+              </div>
+
+              <Fleuron className="my-1 shrink-0" />
+
+              {/* Option 4: Sauvegarde & Restauration */}
+              <div className="flex flex-col gap-4">
+                <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-[#7B1E2B] rounded-full" />
+                  Sauvegarde & Restauration
+                </h4>
+
+                <div className="flex flex-col gap-3 pl-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Gérer les données</span>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={handleExportBackup}
+                      className="flex items-center justify-center gap-2 py-2 pr-2 text-xs font-bold bg-white/5 hover:bg-white/10 hover:text-white rounded-lg border border-white/5 text-zinc-300 transition-colors pointer-events-auto cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-zinc-400" /> Exporter JSON
+                    </button>
+
+                    <label 
+                      className="flex items-center justify-center gap-2 py-2 text-xs font-bold bg-white/5 hover:bg-white/10 hover:text-white rounded-lg border border-white/5 text-zinc-300 transition-colors cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4 text-zinc-400" /> Importer JSON
+                      <input 
+                        type="file" 
+                        accept=".json"
+                        onChange={handleImportBackup}
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  {/* Import State Feedback Alert */}
+                  {importStatus && (
+                    <div className={`p-3 rounded-lg text-xs mt-1 ${
+                      importStatus.type === "success" 
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
+                        : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                    }`}>
+                      {importStatus.msg}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Fleuron className="my-1 shrink-0" />
+
+              {/* Option 5: Avertissement */}
+              <div className="p-4 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl flex items-start gap-3 text-xs leading-relaxed">
                 <AlertTriangle className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
                   <span className="font-bold">Avertissement concernant les données</span>
