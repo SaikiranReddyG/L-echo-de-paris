@@ -31,3 +31,9 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+.error-flash {
+  color: #ef4444 !important; /* text-red-500 */
+  background-color: rgba(239, 68, 68, 0.15) !important; /* bg-red-500/15 */
+}
+

@@ -53,6 +53,7 @@ import { playSuccessSound, playErrorSound } from "./utils/sound";
 import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
 import { generateSentence } from "./data/sentenceGenerator";
 import { GlossaryPanel, parseGlossaryStr } from "./components/GlossaryPanel";
+import { ErrorModeToggle } from "./components/ErrorModeToggle";
 
 const Fleuron: React.FC<{ className?: string }> = ({ className = "" }) => (
   <div className={`flex items-center justify-center gap-3 ${className}`}>
@@ -298,6 +299,29 @@ export default function App() {
   const [typedText, setTypedText] = useState("");
   const [currentStoryErrorChar, setCurrentStoryErrorChar] = useState<string | null>(null);
   const [isFullStoryVisible, setIsFullStoryVisible] = useState(false);
+
+  // Error Mode settings & temporary visual flag state
+  const [errorMode, setErrorMode] = useState<"strict" | "doux">(
+    () => (localStorage.getItem("echo-error-mode") as "strict" | "doux") || "strict"
+  );
+  const [douxErrorActive, setDouxErrorActive] = useState<boolean>(false);
+  const douxTimeoutRef = useRef<any>(null);
+
+  const handleToggleErrorMode = (mode: "strict" | "doux") => {
+    setErrorMode(mode);
+    localStorage.setItem("echo-error-mode", mode);
+    // Focus typing input after toggling
+    setTimeout(() => {
+      if (inputRef.current) inputRef.current.focus();
+    }, 50);
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
+    };
+  }, []);
 
   // Sync state values to refs so that the async voice looping callback can read the most up-to-date state
   const currentScreenRef = useRef(currentScreen);
@@ -1134,6 +1158,12 @@ export default function App() {
 
   // Main typing keyboard stroke listener
   const processTypedChar = (typedCharRaw: string) => {
+    setDouxErrorActive(false);
+    if (douxTimeoutRef.current) {
+      clearTimeout(douxTimeoutRef.current);
+      douxTimeoutRef.current = null;
+    }
+
     const typedChar = typedCharRaw.normalize('NFC');
 
     if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") {
@@ -1394,7 +1424,16 @@ export default function App() {
           setDrillFlashStatus(null);
         }, 150);
 
-        setTypedText("");
+        if (errorMode === "strict") {
+          setTypedText("");
+        } else {
+          setDouxErrorActive(true);
+          if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
+          douxTimeoutRef.current = setTimeout(() => {
+            setDouxErrorActive(false);
+          }, 200);
+        }
+
         if (inputRef.current) {
           inputRef.current.value = "";
         }
@@ -1457,7 +1496,16 @@ export default function App() {
         if (settings.soundEffects) playErrorSound();
         setSessionTotalErrors(prev => prev + 1);
         setActiveSentenceErrors(prev => prev + 1);
-        setCurrentStoryErrorChar(typedChar);
+        
+        if (errorMode === "strict") {
+          setCurrentStoryErrorChar(typedChar);
+        } else {
+          setDouxErrorActive(true);
+          if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
+          douxTimeoutRef.current = setTimeout(() => {
+            setDouxErrorActive(false);
+          }, 200);
+        }
       }
       return;
     }
@@ -1526,13 +1574,21 @@ export default function App() {
         }));
       }
 
-      // Change 2: Reset the entire sentence typed progress on wrong letter
-      setTypedText("");
-      setCurrentStoryErrorChar(null);
+      if (errorMode === "strict") {
+        // Change 2: Reset the entire sentence typed progress on wrong letter
+        setTypedText("");
+        setCurrentStoryErrorChar(null);
 
-      // Brief red flash on the whole sentence display for ~200ms
-      setSentenceErrorFlash(true);
-      setTimeout(() => setSentenceErrorFlash(false), 200);
+        // Brief red flash on the whole sentence display for ~200ms
+        setSentenceErrorFlash(true);
+        setTimeout(() => setSentenceErrorFlash(false), 200);
+      } else {
+        setDouxErrorActive(true);
+        if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
+        douxTimeoutRef.current = setTimeout(() => {
+          setDouxErrorActive(false);
+        }, 200);
+      }
     }
   };
 
@@ -3250,63 +3306,70 @@ export default function App() {
             <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
               
               {/* Header / Meta / Progress marker */}
-              <div className="flex flex-col items-center relative gap-2 font-sans mb-2">
-                <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4">
-                  <button 
-                    onClick={() => {
-                      if ("speechSynthesis" in window) {
-                        window.speechSynthesis.cancel();
+              <div className="flex flex-col items-center relative gap-2 font-sans mb-2 w-full">
+                <div className="w-full flex flex-col md:flex-row items-center md:justify-between gap-4 border-b border-white/[0.05] pb-3 mb-1">
+                  <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4">
+                    <button 
+                      onClick={() => {
+                        if ("speechSynthesis" in window) {
+                          window.speechSynthesis.cancel();
+                        }
+                        setCurrentScreen("learn");
+                      }}
+                      className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                    >
+                      ← Retour à Apprendre
+                    </button>
+                    <div className="h-4 w-px bg-white/10" />
+                    <span className="text-xs font-bold text-burgundy uppercase tracking-widest bg-burgundy-soft px-2.5 py-0.5 rounded-full border border-burgundy-border">
+                      {practiceType === "calibration" 
+                        ? `Calibration : Partie ${calibrationPart}` 
+                        : practiceType === "accents" 
+                        ? "Accents essentiels" 
+                        : practiceType === "flow"
+                        ? `Fluidité progressive (Ronde ${drillRound})`
+                        : practiceType === "wordsShort"
+                        ? `Mots courts (Ronde ${drillRound})`
+                        : practiceType === "wordsLong"
+                        ? `Mots longs (Ronde ${drillRound})`
+                        : practiceType === "phrases"
+                        ? `Phrases complètes (Ronde ${drillRound})`
+                        : practiceType === "dictation"
+                        ? `Dictée - ${dictationScope === "words" ? "Mots" : "Progressif"} (Ronde ${drillRound})`
+                        : `Ronde ${drillRound}`
                       }
-                      setCurrentScreen("learn");
-                    }}
-                    className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
-                  >
-                    ← Retour à Apprendre
-                  </button>
-                  <div className="h-4 w-px bg-white/10" />
-                  <span className="text-xs font-bold text-burgundy uppercase tracking-widest bg-burgundy-soft px-2.5 py-0.5 rounded-full border border-burgundy-border">
-                    {practiceType === "calibration" 
-                      ? `Calibration : Partie ${calibrationPart}` 
-                      : practiceType === "accents" 
-                      ? "Accents essentiels" 
-                      : practiceType === "flow"
-                      ? `Fluidité progressive (Ronde ${drillRound})`
-                      : practiceType === "wordsShort"
-                      ? `Mots courts (Ronde ${drillRound})`
-                      : practiceType === "wordsLong"
-                      ? `Mots longs (Ronde ${drillRound})`
-                      : practiceType === "phrases"
-                      ? `Phrases complètes (Ronde ${drillRound})`
-                      : practiceType === "dictation"
-                      ? `Dictée - ${dictationScope === "words" ? "Mots" : "Progressif"} (Ronde ${drillRound})`
-                      : `Ronde ${drillRound}`
-                    }
-                  </span>
-                  
-                  {showGlossary && (
-                    <>
-                      <div className="h-4 w-px bg-white/10" />
-                      <button 
-                        onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-                        className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
-                          glossaryExpanded 
-                            ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
-                            : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
-                        }`}
-                      >
-                        <BookOpen className="w-3.5 h-3.5" />
-                        <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
-                      </button>
-                    </>
-                  )}
+                    </span>
+                    
+                    {showGlossary && (
+                      <>
+                        <div className="h-4 w-px bg-white/10" />
+                        <button 
+                          onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
+                            glossaryExpanded 
+                              ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                              : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                          }`}
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
+                        </button>
+                      </>
+                    )}
 
-                  <div className="h-4 w-px bg-white/10" />
-                  <button 
-                    onClick={handleStopLettersDrill}
-                    className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 transition-all cursor-pointer font-sans"
-                  >
-                    Terminer la session
-                  </button>
+                    <div className="h-4 w-px bg-white/10" />
+                    <button 
+                      onClick={handleStopLettersDrill}
+                      className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 transition-all cursor-pointer font-sans"
+                    >
+                      Terminer la session
+                    </button>
+                  </div>
+                  
+                  {/* Error Mode Toggle */}
+                  <div className="shrink-0 flex items-center justify-center">
+                    <ErrorModeToggle errorMode={errorMode} onChange={handleToggleErrorMode} />
+                  </div>
                 </div>
 
                 {/* Stage Indicators */}
@@ -3413,15 +3476,22 @@ export default function App() {
                       <div className="mt-6 flex flex-wrap items-center justify-center gap-2 max-w-full px-4 select-none">
                         {targetWord.split("").map((expectedChar, idx) => {
                           const isTyped = idx < typedText.length;
+                          const isActive = idx === typedText.length;
                           return (
                             <span 
                               key={idx}
                               className={`inline-block transition-all duration-150 ${
                                 expectedChar === " " 
-                                  ? "w-8 h-2 border-b-2 border-dashed border-white/20 mr-1" 
+                                  ? `w-8 h-2 border-b-2 border-dashed mr-1 ${
+                                      isActive && errorMode === "doux" && douxErrorActive 
+                                        ? "border-rose-500 bg-rose-500/15" 
+                                        : "border-white/20"
+                                    }` 
                                   : `w-3 h-3 rounded-full border ${
                                       isTyped 
                                         ? "bg-purple-500 border-purple-400 scale-110 shadow-[0_0_10px_rgba(168,85,247,0.5)]" 
+                                        : isActive && errorMode === "doux" && douxErrorActive
+                                        ? "bg-rose-500 border-rose-400 scale-110 shadow-[0_0_10px_rgba(244,63,94,0.5)]"
                                         : "bg-zinc-950 border-white/20"
                                     }`
                               }`}
@@ -3470,8 +3540,13 @@ export default function App() {
                         if (isTyped) {
                           colorClass = "text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.35)]";
                         } else if (isActive) {
-                          colorClass = "text-white scale-110";
-                          borderClass = "border-b-4 border-emerald-400 animate-pulse";
+                          if (errorMode === "doux" && douxErrorActive) {
+                            colorClass = "error-flash scale-110 rounded px-0.5";
+                            borderClass = "border-b-4 border-rose-500 animate-pulse";
+                          } else {
+                            colorClass = "text-white scale-110";
+                            borderClass = "border-b-4 border-emerald-400 animate-pulse";
+                          }
                         }
 
                         return (
@@ -3700,8 +3775,8 @@ export default function App() {
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
             
             {/* Header / Meta */}
-            <div className="flex flex-col items-center relative gap-2 font-sans">
-              <div className="flex items-center gap-4">
+            <div className="w-full flex flex-col md:flex-row items-center justify-between gap-4 font-sans mb-4 pb-2 border-b border-white/[0.05]">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
                 <button 
                   onClick={() => {
                     if ("speechSynthesis" in window) {
@@ -3714,7 +3789,7 @@ export default function App() {
                   ← Retour à la bibliothèque
                 </button>
                 <div className="h-4 w-px bg-white/10" />
-                <span className="text-xs font-bold text-zinc-400">Mode Libre — Saisie libre du Français</span>
+                <span className="text-xs font-bold text-zinc-400 font-sans">Mode Libre — Saisie libre du Français</span>
 
                 {freeModeGlossary.length > 0 && (
                   <>
@@ -3735,6 +3810,11 @@ export default function App() {
                     </button>
                   </>
                 )}
+              </div>
+
+              {/* Error Mode Toggle */}
+              <div className="shrink-0 flex items-center justify-center">
+                <ErrorModeToggle errorMode={errorMode} onChange={handleToggleErrorMode} />
               </div>
             </div>
 
@@ -3839,6 +3919,9 @@ export default function App() {
                         } else if (index === typedText.length) {
                           if (currentStoryErrorChar !== null) {
                             charClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10";
+                            borderClass = "animate-pulse border-l-2 border-rose-500";
+                          } else if (errorMode === "doux" && douxErrorActive) {
+                            charClass = "error-flash text-rose-500 font-bold px-0.5 rounded";
                             borderClass = "animate-pulse border-l-2 border-rose-500";
                           } else {
                             charClass = "text-white font-medium bg-white/10 rounded px-0.5";
@@ -4023,45 +4106,52 @@ export default function App() {
           <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-8 mt-4">
             
             {/* Header / Meta / Progress marker */}
-            <div className="flex flex-col items-center relative gap-2 font-sans">
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => {
-                    if ("speechSynthesis" in window) {
-                      window.speechSynthesis.cancel();
-                    }
-                    setCurrentScreen("library");
-                  }}
-                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
-                >
-                  ← Retour à la bibliothèque
-                </button>
-                <div className="h-4 w-px bg-white/10" />
-                <span className="text-xs font-bold text-zinc-400 truncate max-w-xs">{selectedStory.title}</span>
+            <div className="w-full flex flex-col gap-2 font-sans mb-4 border-b border-white/[0.05] pb-4">
+              <div className="w-full flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
+                  <button 
+                    onClick={() => {
+                      if ("speechSynthesis" in window) {
+                        window.speechSynthesis.cancel();
+                      }
+                      setCurrentScreen("library");
+                    }}
+                    className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer"
+                  >
+                    ← Retour à la bibliothèque
+                  </button>
+                  <div className="h-4 w-px bg-white/10" />
+                  <span className="text-xs font-bold text-zinc-400 truncate max-w-xs">{selectedStory.title}</span>
 
-                {selectedStory.glossary && selectedStory.glossary.length > 0 && (
-                  <>
-                    <div className="h-4 w-px bg-white/10" />
-                    <button 
-                      onClick={() => {
-                        setGlossaryExpanded(!glossaryExpanded);
-                        setTimeout(() => focusInputZone(), 50);
-                      }}
-                      className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
-                        glossaryExpanded 
-                          ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
-                          : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
-                    </button>
-                  </>
-                )}
+                  {selectedStory.glossary && selectedStory.glossary.length > 0 && (
+                    <>
+                      <div className="h-4 w-px bg-white/10" />
+                      <button 
+                        onClick={() => {
+                          setGlossaryExpanded(!glossaryExpanded);
+                          setTimeout(() => focusInputZone(), 50);
+                        }}
+                        className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer font-sans flex items-center gap-1.5 ${
+                          glossaryExpanded 
+                            ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                            : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>{glossaryExpanded ? "Masquer le Glossaire" : "Afficher le Glossaire"}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Error Mode Toggle */}
+                <div className="shrink-0 flex items-center justify-center">
+                  <ErrorModeToggle errorMode={errorMode} onChange={handleToggleErrorMode} />
+                </div>
               </div>
 
               {/* Central Progress Tracking Gauge bar */}
-              <div className="flex items-center gap-4 mt-2">
+              <div className="flex items-center justify-center gap-4 mt-2">
                 <span className="text-[10px] tracking-widest text-zinc-500 font-mono uppercase">
                   Phrase {currentSentenceIndex + 1} sur {selectedStory.sentences.length}
                 </span>
@@ -4118,6 +4208,9 @@ export default function App() {
                       // Active typing position
                       if (currentStoryErrorChar !== null) {
                         charClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10"; // errored
+                        borderClass = "animate-pulse border-l-2 border-rose-500";
+                      } else if (errorMode === "doux" && douxErrorActive) {
+                        charClass = "error-flash text-rose-500 font-bold px-0.5 rounded";
                         borderClass = "animate-pulse border-l-2 border-rose-500";
                       } else {
                         charClass = "text-white font-medium bg-white/10 rounded px-0.5";
