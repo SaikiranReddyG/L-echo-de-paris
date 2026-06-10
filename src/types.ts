@@ -76,3 +76,25 @@ export interface DrillSessionAttempt {
   wpm: number;
 }
 
+export type PracticeType = 
+  | "story"
+  | "letters"
+  | "accents"
+  | "calibration"
+  | "free"
+  | "flow"
+  | "wordsShort"
+  | "wordsLong"
+  | "phrases"
+  | "dictation"
+  | "lesson"
+  | "video-dictee";
+
+export interface SrtCue {
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
+

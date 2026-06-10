@@ -28,9 +28,12 @@ import {
   Check,
   Languages,
   ArrowRight,
-  Keyboard
+  Keyboard,
+  Video,
+  Eye,
+  EyeOff
 } from "lucide-react";
-import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, GlossaryEntry } from "./types";
+import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, GlossaryEntry, SrtCue, PracticeType } from "./types";
 import { 
   initDB, 
   getStories, 
@@ -248,13 +251,53 @@ function generateLettersDrill(): Sentence[] {
   return sentences;
 }
 
+function parseTime(timeStr: string): number {
+  const match = timeStr.trim().match(/^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$/);
+  if (!match) return 0;
+  const hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const seconds = parseInt(match[3], 10);
+  const ms = parseInt(match[4], 10);
+  return hours * 3600 + minutes * 60 + seconds + ms / 1000;
+}
+
+export function parseSRT(text: string): SrtCue[] {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const rawBlocks = normalized.split(/\n\n+/);
+  const cues: SrtCue[] = [];
+
+  for (const block of rawBlocks) {
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length >= 3) {
+      const index = parseInt(lines[0], 10);
+      const timeLine = lines[1];
+      if (isNaN(index) || !timeLine.includes("-->")) continue;
+
+      const parts = timeLine.split("-->").map(p => p.trim());
+      if (parts.length < 2) continue;
+
+      const start = parseTime(parts[0]);
+      const end = parseTime(parts[1]);
+      const cueTxt = lines.slice(2).join(" ");
+
+      cues.push({ index, start, end, text: cueTxt });
+    }
+  }
+  return cues;
+}
+
+export function cleanOuterPunctuation(str: string): string {
+  const s = str.trim().toLowerCase();
+  return s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+}
+
 export default function App() {
   // Navigation & Screens
   // "library" | "learn" | "practice" | "results"
   const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup">("library");
 
   // Custom Training state
-  const [practiceType, setPracticeType] = useState<"story" | "letters" | "accents" | "calibration" | "free" | "flow" | "wordsShort" | "wordsLong" | "phrases" | "dictation" | "lesson">("story");
+  const [practiceType, setPracticeType] = useState<PracticeType>("story");
   const [accentsPhase, setAccentsPhase] = useState<1 | 2>(1);
   const [accentTourIdx, setAccentTourIdx] = useState(0);
   const [tourFeedback, setTourFeedback] = useState<"success" | "error" | null>(null);
@@ -300,6 +343,31 @@ export default function App() {
   const [currentStoryErrorChar, setCurrentStoryErrorChar] = useState<string | null>(null);
   const [isFullStoryVisible, setIsFullStoryVisible] = useState(false);
 
+  // Video Dictation States
+  const [videoDicteeFile, setVideoDicteeFile] = useState<File | string | null>(null);
+  const [videoDicteeUrl, setVideoDicteeUrl] = useState<string>("");
+  const [videoDicteeCues, setVideoDicteeCues] = useState<SrtCue[]>([]);
+  const [videoDicteeCueIndex, setVideoDicteeCueIndex] = useState(0);
+  const [videoDicteeSubtitleVisible, setVideoDicteeSubtitleVisible] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!videoDicteeFile) {
+      setVideoDicteeUrl("");
+      return;
+    }
+    if (typeof videoDicteeFile === "string") {
+      setVideoDicteeUrl(videoDicteeFile);
+      return;
+    }
+    const url = URL.createObjectURL(videoDicteeFile);
+    setVideoDicteeUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [videoDicteeFile]);
+
   // Error Mode settings & temporary visual flag state
   const [errorMode, setErrorMode] = useState<"strict" | "doux">(
     () => (localStorage.getItem("echo-error-mode") as "strict" | "doux") || "strict"
@@ -322,6 +390,15 @@ export default function App() {
       if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
     };
   }, []);
+
+  // Autofocus typing input in video dictation mode
+  useEffect(() => {
+    if (practiceType === "video-dictee" && videoDicteeFile && videoDicteeCues.length > 0) {
+      setTimeout(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, 150);
+    }
+  }, [practiceType, videoDicteeCueIndex, videoDicteeFile, videoDicteeCues.length]);
 
   // Sync state values to refs so that the async voice looping callback can read the most up-to-date state
   const currentScreenRef = useRef(currentScreen);
@@ -1510,6 +1587,37 @@ export default function App() {
       return;
     }
 
+    if (practiceType === "video-dictee") {
+      const currentCue = videoDicteeCues[videoDicteeCueIndex];
+      if (!currentCue) return;
+
+      const expectedChar = (currentCue.text[typedText.length] || "").normalize('NFC');
+
+      if (typedChar === expectedChar) {
+        if (settings.soundEffects) playSuccessSound();
+        setSessionTotalCharsTyped(prev => prev + 1);
+
+        const newText = typedText + expectedChar;
+        setTypedText(newText);
+
+        if (newText === currentCue.text) {
+          setVideoDicteeCueIndex(prev => prev + 1);
+          setTypedText("");
+          if (videoRef.current) {
+            videoRef.current.play().catch(() => {});
+          }
+        }
+      } else {
+        if (settings.soundEffects) playErrorSound();
+        setSessionTotalErrors(prev => prev + 1);
+        setActiveSentenceErrors(prev => prev + 1);
+
+        setSentenceErrorFlash(true);
+        setTimeout(() => setSentenceErrorFlash(false), 200);
+      }
+      return;
+    }
+
     // Prevent typing further than sentence length
     if (!currentSentence) return;
 
@@ -1771,10 +1879,35 @@ export default function App() {
     }, 120);
   };
 
+  const handleStartVideoDictee = () => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setTypedText("");
+    setCurrentStoryErrorChar(null);
+    setSessionStartTime(null);
+    setSentenceStartTime(null);
+    setSessionTotalCharsTyped(0);
+    setSessionTotalErrors(0);
+    setActiveSentenceErrors(0);
+    setPracticeType("video-dictee");
+    setVideoDicteeCueIndex(0);
+    setCompletedSessionDetails(null);
+    setCurrentScreen("practice");
+  };
+
   // ---------------------------------------------------------------------------
   // 4. Manual on-screen click inserter accent keys
   // ---------------------------------------------------------------------------
   const handleInsertAccentChar = (accentChar: string) => {
+    if (practiceType === "video-dictee") {
+      processTypedChar(accentChar);
+      setTimeout(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, 50);
+      return;
+    }
+
     // Session/sentence start timers and audio for story/free modes
     if (practiceType === "story" && currentSentence) {
       if (sessionStartTime === null) {
@@ -1853,7 +1986,7 @@ export default function App() {
 
     if (e.key === "Backspace") {
       e.preventDefault();
-      if (practiceType === "story" || practiceType === "free") {
+      if (practiceType === "story" || practiceType === "free" || practiceType === "video-dictee") {
         if (currentStoryErrorChar !== null) {
           setCurrentStoryErrorChar(null);
         } else if (typedText.length > 0) {
@@ -2425,6 +2558,54 @@ export default function App() {
                         className="bg-burgundy hover:bg-burgundy-hover text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
                       >
                         Lire & Écrire <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Visual Premium Injected Card for Vidéo Dictée */}
+                {searchQuery === "" && (
+                  <div 
+                    onClick={() => handleStartVideoDictee()}
+                    className="group flex flex-col justify-between bg-[#1a1614] border border-burgundy-border/40 hover:border-burgundy/40 rounded-2xl pl-8 pr-6 py-6 transition-all duration-300 relative overflow-hidden cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.15)] hover:-translate-y-0.5 hover:shadow-[0_8px_35px_rgba(123,30,43,0.1)]"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>")`
+                    }}
+                  >
+                    {/* Spine Left band */}
+                    <div className="absolute left-0 top-0 bottom-0 w-[6px] bg-burgundy group-hover:shadow-[2px_0_15px_rgba(123,30,43,0.5)] transition-all duration-300" />
+
+                    <div>
+                      <div className="flex justify-between items-start gap-4 mb-3">
+                        <span className="text-[10px] uppercase tracking-wider text-burgundy font-sans block">
+                          dictée interactive · vidéo local
+                        </span>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-burgundy/80 font-mono">
+                          <Video className="w-3.5 h-3.5" />
+                          <span>Nouveau</span>
+                        </div>
+                      </div>
+
+                      <h3 className="text-xl font-serif text-white leading-tight mb-2 group-hover:text-burgundy transition-colors flex items-center gap-2">
+                        <Video className="w-4 h-4 text-burgundy" /> Vidéo Dictée
+                      </h3>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed italic pr-4 mb-4 font-serif">
+                        "Téléversez votre vidéo (.mp4, .webm) et vos sous-titres (.srt). La vidéo s’arrête automatiquement à chaque phrase pour vous laisser saisir le texte."
+                      </p>
+                    </div>
+
+                    <div className="pt-4 border-t border-burgundy-border/15 flex items-center justify-between mt-4">
+                      <span className="text-[10px] tracking-wider text-zinc-500 uppercase font-sans">Fonctionnalité Locale</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartVideoDictee();
+                        }}
+                        className="bg-burgundy hover:bg-burgundy-hover text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-md"
+                      >
+                        Pratiquer <ChevronRight className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -4099,6 +4280,390 @@ export default function App() {
               autoFocus
               placeholder="Frappez ici..."
             />
+          </div>
+        )}
+
+        {currentScreen === "practice" && practiceType === "video-dictee" && (
+          <div className="w-full animate-fade-in flex flex-col justify-between flex-1 gap-6 mt-4">
+            
+            {/* Header / Meta */}
+            <div className="w-full flex flex-col md:flex-row items-center justify-between gap-4 font-sans mb-4 pb-2 border-b border-white/[0.05]">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
+                <button 
+                  onClick={() => {
+                    if (videoRef.current) videoRef.current.pause();
+                    setCurrentScreen("library");
+                  }}
+                  className="px-3 py-1 bg-white/5 hover:bg-white/10 text-xs font-semibold text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-all cursor-pointer font-sans"
+                >
+                  ← Retour à la bibliothèque
+                </button>
+                <div className="h-4 w-px bg-white/10" />
+                <span className="text-xs font-bold text-zinc-400 font-sans">Vidéo Dictée — Saisie & Écoute interactive</span>
+
+                {videoDicteeFile && videoDicteeCues.length > 0 && (
+                  <>
+                    <div className="h-4 w-px bg-white/10" />
+                    <button 
+                      onClick={() => {
+                        setVideoDicteeFile(null);
+                        setVideoDicteeCues([]);
+                        setVideoDicteeCueIndex(0);
+                        setTypedText("");
+                      }}
+                      className="px-3 py-1 text-xs font-semibold rounded-lg border bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10 cursor-pointer font-sans"
+                    >
+                      Choisir une autre vidéo
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Main content body */}
+            {(!videoDicteeFile || videoDicteeCues.length === 0) ? (
+              /* Setup & upload block */
+              <div className="w-full max-w-3xl mx-auto bg-[#111216]/60 border border-white/5 rounded-2xl p-6 sm:p-8 flex flex-col gap-6 text-center animate-fade-in">
+                <div>
+                  <h3 className="text-2xl font-serif text-white mb-2">Configurez votre Vidéo Dictée</h3>
+                  <p className="text-xs sm:text-sm text-zinc-400 max-w-lg mx-auto leading-relaxed">
+                    Déposez ou sélectionnez un fichier vidéo local (.mp4 ou .webm) et son fichier de sous-titres associé au format standard SubRip (.srt).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Video Upload Field */}
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add("border-burgundy-border", "bg-burgundy-soft");
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("border-burgundy-border", "bg-burgundy-soft");
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("border-burgundy-border", "bg-burgundy-soft");
+                      if (e.dataTransfer.files[0]) {
+                        setVideoDicteeFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`border-2 border-dashed p-6 rounded-xl flex flex-col items-center justify-center gap-3 transition-colors ${
+                      videoDicteeFile ? "border-emerald-500/40 bg-emerald-500/[0.02]" : "border-white/10 hover:border-white/20 bg-zinc-950/40"
+                    }`}
+                  >
+                    <Video className={`w-8 h-8 ${videoDicteeFile ? "text-emerald-400" : "text-zinc-500"}`} />
+                    <span className="text-xs font-semibold text-zinc-350">Fichier Vidéo (.mp4, .webm)</span>
+                    <label className="px-3 py-1 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-zinc-300 rounded cursor-pointer border border-white/10 uppercase select-none">
+                      Sélectionner
+                      <input 
+                        type="file" 
+                        accept="video/*" 
+                        className="hidden" 
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            setVideoDicteeFile(e.target.files[0]);
+                          }
+                        }} 
+                      />
+                    </label>
+                    <span className="text-[10px] text-zinc-500 truncate max-w-[200px]">
+                      {videoDicteeFile ? (typeof videoDicteeFile === "string" ? "Vidéo d'exemple chargée" : videoDicteeFile.name) : "Aucun fichier choisi"}
+                    </span>
+                  </div>
+
+                  {/* SRT Upload Field */}
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add("border-burgundy-border", "bg-burgundy-soft");
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("border-burgundy-border", "bg-burgundy-soft");
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("border-burgundy-border", "bg-burgundy-soft");
+                      if (e.dataTransfer.files[0]) {
+                        const file = e.dataTransfer.files[0];
+                        const r = new FileReader();
+                        r.onload = (ev) => {
+                          const cues = parseSRT(ev.target?.result as string);
+                          if (cues.length > 0) {
+                            setVideoDicteeCues(cues);
+                          } else {
+                            alert("SRT invalide. Assurez-vous d'avoir des phrases complètes.");
+                          }
+                        };
+                        r.readAsText(file);
+                      }
+                    }}
+                    className={`border-2 border-dashed p-6 rounded-xl flex flex-col items-center justify-center gap-3 transition-colors ${
+                      videoDicteeCues.length > 0 ? "border-emerald-500/40 bg-emerald-500/[0.02]" : "border-white/10 hover:border-white/20 bg-zinc-950/40"
+                    }`}
+                  >
+                    <FileText className={`w-8 h-8 ${videoDicteeCues.length > 0 ? "text-emerald-400" : "text-zinc-500"}`} />
+                    <span className="text-xs font-semibold text-zinc-350">Fichier Sous-titres (.srt)</span>
+                    <label className="px-3 py-1 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-zinc-300 rounded cursor-pointer border border-white/10 uppercase select-none">
+                      Sélectionner
+                      <input 
+                        type="file" 
+                        accept=".srt" 
+                        className="hidden" 
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            const file = e.target.files[0];
+                            const r = new FileReader();
+                            r.onload = (ev) => {
+                              const cues = parseSRT(ev.target?.result as string);
+                              if (cues.length > 0) {
+                                setVideoDicteeCues(cues);
+                              } else {
+                                alert("SRT invalide. Assurez-vous du format.");
+                              }
+                            };
+                            r.readAsText(file);
+                          }
+                        }} 
+                      />
+                    </label>
+                    <span className="text-[10px] text-zinc-500">
+                      {videoDicteeCues.length > 0 ? `${videoDicteeCues.length} répliques chargées` : "Aucun fichier choisi"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 border-t border-white/5">
+                  <button
+                    onClick={() => {
+                      // Load example video and subtitles
+                      setVideoDicteeFile("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4");
+                      setVideoDicteeCues([
+                        { index: 1, start: 0, end: 3, text: "Rejoignez le feu de camp." },
+                        { index: 2, start: 3, end: 6.5, text: "C'est une excellente journée pour apprendre le français." },
+                        { index: 3, start: 6.5, end: 12, text: "Pratiquez la dactylographie pas à pas." }
+                      ]);
+                      setVideoDicteeCueIndex(0);
+                      setTypedText("");
+                    }}
+                    className="px-5 py-2 border border-white/10 hover:border-white/25 hover:bg-white/5 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer font-sans"
+                  >
+                    Utiliser un exemple de démonstration
+                  </button>
+                </div>
+              </div>
+            ) : videoDicteeCueIndex >= videoDicteeCues.length ? (
+              /* Completion / Success screen */
+              <div className="w-full max-w-xl mx-auto bg-[#111216]/60 border border-emerald-500/20 rounded-2xl p-6 sm:p-8 text-center animate-fade-in flex flex-col items-center gap-5">
+                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center text-emerald-400 mb-2">
+                  <Check className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-serif text-white mb-2">Félicitations ! 🎉</h3>
+                  <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
+                    Vous avez complété la dictée vidéo avec succès. Vous avez écrit correctement l'ensemble des répliques !
+                  </p>
+                </div>
+                <div className="flex flex-col items-center p-3 bg-zinc-950/40 rounded-xl w-full border border-white/5">
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-sans font-bold">Répliques terminées</span>
+                  <span className="text-xl font-mono text-white mt-1">{videoDicteeCues.length} / {videoDicteeCues.length}</span>
+                </div>
+                <div className="flex gap-4 w-full">
+                  <button
+                    onClick={() => {
+                      setVideoDicteeCueIndex(0);
+                      setTypedText("");
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                        videoRef.current.play().catch(() => {});
+                      }
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-burgundy hover:bg-burgundy-hover text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer font-sans"
+                  >
+                    Recommencer
+                  </button>
+                  <button
+                    onClick={() => {
+                      setVideoDicteeFile(null);
+                      setVideoDicteeCues([]);
+                      setVideoDicteeCueIndex(0);
+                      setTypedText("");
+                    }}
+                    className="flex-1 px-4 py-2.5 border border-white/5 hover:border-white/10 hover:bg-white/5 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer font-sans"
+                  >
+                    Nouvelle vidéo
+                  </button>
+                </div>
+              </div>
+            ) : (() => {
+              const currentCue = videoDicteeCues[videoDicteeCueIndex];
+              const videoUrl = videoDicteeUrl;
+              
+              return (
+                /* Interactive playing session */
+                <div className="w-full flex flex-col gap-6 max-w-4xl mx-auto animate-fade-in">
+                  
+                  {/* Video Player Box */}
+                  <div className="w-full bg-[#090a0d] border border-white/5 rounded-2xl overflow-hidden shadow-xl aspect-video relative max-h-[360px] md:max-h-[400px] flex items-center justify-center">
+                    <video
+                      ref={videoRef}
+                      src={videoUrl}
+                      controls
+                      autoPlay
+                      onTimeUpdate={(e) => {
+                        const video = e.currentTarget;
+                        if (currentCue && video.currentTime >= currentCue.end) {
+                          video.pause();
+                          video.currentTime = currentCue.end;
+                        }
+                      }}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+
+                  {/* Subtitle / Overlay indicator */}
+                  <div className="w-full bg-[#111216]/40 border border-white/5 rounded-2xl px-6 py-6 text-center shadow-lg relative min-h-[90px] flex items-center justify-center">
+                    {videoDicteeSubtitleVisible ? (
+                      <p className="font-serif text-lg sm:text-2xl text-white italic tracking-wide leading-relaxed select-none">
+                        "{currentCue.text}"
+                      </p>
+                    ) : (
+                      <p className="font-sans text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1.5 leading-relaxed italic select-none">
+                        <EyeOff className="w-4 h-4 text-zinc-600" />
+                        Saisissez ce que vous entendez... (Sous-titres masqués. Cliquez sur 👁️ ci-dessous pour afficher)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Interactive Input Block */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between font-sans px-1">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+                        Séquence {videoDicteeCueIndex + 1} / {videoDicteeCues.length} · {Math.round(currentCue.start)}s à {Math.round(currentCue.end)}s
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (videoRef.current) {
+                            videoRef.current.currentTime = currentCue.start;
+                            videoRef.current.play().catch(() => {});
+                          }
+                        }}
+                        className="text-[10px] text-burgundy hover:text-burgundy-hover flex items-center gap-1 font-bold uppercase tracking-wider underline cursor-pointer"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" /> Réécouter la séquence
+                      </button>
+                    </div>
+
+                    {/* Visual Key-by-Key display div */}
+                    <div 
+                      onClick={() => {
+                        if (inputRef.current) inputRef.current.focus();
+                      }}
+                      className={`w-full min-h-[90px] p-4 bg-[#111216]/70 border rounded-2xl text-zinc-200 text-sm font-serif leading-relaxed cursor-text transition-all shadow-inner relative flex flex-wrap items-center gap-x-[1px] gap-y-1 ${
+                        sentenceErrorFlash 
+                          ? "border-rose-500 bg-rose-500/5 animate-shake shadow-[0_0_15px_rgba(239,68,68,0.25)]" 
+                          : "border-white/5 hover:border-white/10"
+                      }`}
+                    >
+                      {typedText.length === 0 ? (
+                        <span className="text-zinc-500 italic select-none">
+                          Commencez à saisir ce que vous entendez...
+                        </span>
+                      ) : (
+                        <span className="text-emerald-400 whitespace-pre-wrap">{typedText}</span>
+                      )}
+                      
+                      {/* Blinking keyboard cursor */}
+                      <span className="w-[1.5px] h-4 bg-emerald-400 animate-pulse inline-block ml-0.5" />
+                    </div>
+
+                    {/* Hidden input zone to capture precise localized French inputs */}
+                    <textarea
+                      ref={inputRef}
+                      defaultValue=""
+                      onInput={handleNativeInput}
+                      onKeyDown={handleKeyDown}
+                      className="opacity-0 absolute w-0 h-0 resize-none overflow-hidden focus:outline-none pointer-events-none"
+                      autoFocus
+                      placeholder="Frappez ici..."
+                    />
+
+                    {/* Controls Bar */}
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        onClick={() => setVideoDicteeSubtitleVisible(!videoDicteeSubtitleVisible)}
+                        className={`px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer ${
+                          videoDicteeSubtitleVisible 
+                            ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                            : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {videoDicteeSubtitleVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>{videoDicteeSubtitleVisible ? "Masquer les sous-titres" : "Afficher les sous-titres"}</span>
+                      </button>
+
+                      <span className="text-[9px] text-zinc-500 uppercase font-mono">
+                        Cliquez pour activer la frappe · Tapez parfaitement sans omission
+                      </span>
+                    </div>
+
+                    {/* virtual accent insertion button bar */}
+                    <div className="mt-2">
+                      {renderCollapsibleAccentBar()}
+                    </div>
+
+                    {/* AZERTY Virtual Keyboard render block */}
+                    <div className="max-w-3xl w-full mx-auto flex flex-col items-center mt-3 animate-fade-in">
+                      <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-sans mb-3">
+                        Visualisation du Clavier AZERTY
+                      </span>
+
+                      <div className="w-full bg-[#111216] border border-white/5 rounded-2xl p-4 flex flex-col gap-2 overflow-x-auto select-none scrollbar-thin">
+                        {AZERTY_ROWS.map((row, rIdx) => (
+                          <div key={rIdx} className="flex justify-center gap-1.5 min-w-max">
+                            {row.map((keyObj, kIdx) => {
+                              if (keyObj.isSpecial) {
+                                return (
+                                  <div 
+                                    key={kIdx} 
+                                    className={`h-11 flex items-center justify-center bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-bold text-zinc-400 select-none uppercase ${keyObj.width || "w-12"}`}
+                                  >
+                                    {keyObj.label}
+                                  </div>
+                                );
+                              }
+                              const isAccent = ["é", "è", "à", "ç", "ù", "^"].includes(keyObj.main);
+                              return (
+                                <div 
+                                  key={kIdx} 
+                                  className={`w-10 h-11 flex-shrink-0 relative bg-zinc-900 rounded-lg flex items-center justify-center pt-2 select-none ${
+                                    isAccent 
+                                      ? "border border-burgundy-border bg-burgundy-soft" 
+                                      : "border border-white/5"
+                                  }`}
+                                >
+                                  {keyObj.sub && (
+                                    <span className="absolute top-1 left-1.5 text-[9px] font-medium text-zinc-500">
+                                      {keyObj.sub}
+                                    </span>
+                                  )}
+                                  <span className={`text-sm font-semibold ${isAccent ? "text-burgundy font-bold" : "text-zinc-200"}`}>
+                                    {keyObj.main}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
