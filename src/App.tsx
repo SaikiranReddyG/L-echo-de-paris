@@ -368,7 +368,16 @@ export default function App() {
   const [videoDicteeCues, setVideoDicteeCues] = useState<SrtCue[]>([]);
   const [videoDicteeCueIndex, setVideoDicteeCueIndex] = useState(0);
   const [videoDicteeSubtitleVisible, setVideoDicteeSubtitleVisible] = useState(false);
+  const [videoDicteeTranslation, setVideoDicteeTranslation] = useState<string | null>(null);
+  const [videoDicteeTranslating, setVideoDicteeTranslating] = useState(false);
+  const [videoDicteeTranslationVisible, setVideoDicteeTranslationVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    setVideoDicteeTranslation(null);
+    setVideoDicteeTranslating(false);
+    setVideoDicteeTranslationVisible(false);
+  }, [videoDicteeCueIndex]);
 
   useEffect(() => {
     if (!videoDicteeFile) {
@@ -1928,6 +1937,35 @@ export default function App() {
       videoRef.current.currentTime = nextCue.start;
       videoRef.current.play().catch(() => {});
     }
+  };
+
+  const handleTranslateCue = () => {
+    if (videoDicteeTranslation) {
+      setVideoDicteeTranslationVisible(!videoDicteeTranslationVisible);
+      return;
+    }
+    const currentCue = videoDicteeCues[videoDicteeCueIndex];
+    if (!currentCue) return;
+
+    setVideoDicteeTranslating(true);
+    fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(currentCue.text)}&langpair=fr|en`)
+      .then((res) => res.json())
+      .then((data) => {
+        const trans = data?.responseData?.translatedText 
+          || data?.data?.translatedText 
+          || data?.translatedText 
+          || (data?.matches && data.matches[0]?.translation) 
+          || "Translation unavailable";
+        setVideoDicteeTranslation(trans);
+        setVideoDicteeTranslationVisible(true);
+      })
+      .catch(() => {
+        setVideoDicteeTranslation("Translation error.");
+        setVideoDicteeTranslationVisible(true);
+      })
+      .finally(() => {
+        setVideoDicteeTranslating(false);
+      });
   };
 
   // ---------------------------------------------------------------------------
@@ -4564,11 +4602,43 @@ export default function App() {
                   </div>
 
                   {/* Subtitle / Overlay indicator */}
-                  <div className="w-full bg-[#111216]/40 border border-white/5 rounded-2xl px-6 py-6 text-center shadow-lg relative min-h-[90px] flex items-center justify-center">
+                  <div className="w-full bg-[#111216]/40 border border-white/5 rounded-2xl px-6 py-6 text-center shadow-lg relative min-h-[90px] flex flex-col items-center justify-center gap-3">
                     {videoDicteeSubtitleVisible ? (
-                      <p className="font-serif text-lg sm:text-2xl text-white italic tracking-wide leading-relaxed select-none">
-                        "{currentCue.text}"
-                      </p>
+                      <>
+                        <div className="flex items-center gap-3 justify-center flex-wrap">
+                          <p className="font-serif text-lg sm:text-2xl text-white italic tracking-wide leading-relaxed select-none">
+                            "{currentCue.text}"
+                          </p>
+                          <button
+                            onClick={handleTranslateCue}
+                            className="px-2.5 py-1 text-[10px] font-bold font-sans uppercase tracking-wider bg-white/5 hover:bg-white/10 text-zinc-350 hover:text-white border border-white/10 rounded transition-all cursor-pointer flex items-center gap-1 inline-flex select-none"
+                            title="Traduire cette réplique en anglais"
+                          >
+                            <Languages className="w-3 h-3 text-emerald-400" />
+                            <span>
+                              {videoDicteeTranslating 
+                                ? "Traduction..." 
+                                : videoDicteeTranslation && videoDicteeTranslationVisible 
+                                  ? "Masquer Trad." 
+                                  : "Traduire"}
+                            </span>
+                          </button>
+                        </div>
+                        
+                        {(videoDicteeTranslating || (videoDicteeTranslation && videoDicteeTranslationVisible)) && (
+                          <div className="w-full max-w-lg pt-2 mt-1 border-t border-white/5 animate-fade-in text-center flex flex-col items-center justify-center">
+                            {videoDicteeTranslating ? (
+                              <p className="text-[11px] text-zinc-500 font-sans italic flex items-center gap-1.5 animate-pulse select-none">
+                                Fetching MyMemory translation...
+                              </p>
+                            ) : (
+                              <p className="text-xs sm:text-sm text-zinc-350 font-sans tracking-wide leading-relaxed select-text italic">
+                                {videoDicteeTranslation}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <p className="font-sans text-xs text-zinc-500 uppercase tracking-widest flex items-center gap-1.5 leading-relaxed italic select-none">
                         <EyeOff className="w-4 h-4 text-zinc-600" />
