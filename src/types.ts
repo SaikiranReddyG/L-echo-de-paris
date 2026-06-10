@@ -95,6 +95,7 @@ export interface SrtCue {
   start: number;
   end: number;
   text: string;
+  normalizedText?: string;
 }
 
 

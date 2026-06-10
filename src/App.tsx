@@ -261,6 +261,18 @@ function parseTime(timeStr: string): number {
   return hours * 3600 + minutes * 60 + seconds + ms / 1000;
 }
 
+export function normalizeVideoDicteeTarget(text: string): string {
+  let s = text;
+  // Replace curly/smart double quotes & guillemets with empty or straight equivalents
+  s = s.replace(/[«»“”]/g, "");
+  s = s.replace(/[‘’]/g, "'");
+  // Strip any leading and trailing punctuation characters that are not letters or digits
+  s = s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  // Collapse multiple spaces
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
 export function parseSRT(text: string): SrtCue[] {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const rawBlocks = normalized.split(/\n\n+/);
@@ -280,7 +292,13 @@ export function parseSRT(text: string): SrtCue[] {
       const end = parseTime(parts[1]);
       const cueTxt = lines.slice(2).join(" ");
 
-      cues.push({ index, start, end, text: cueTxt });
+      cues.push({ 
+        index, 
+        start, 
+        end, 
+        text: cueTxt,
+        normalizedText: normalizeVideoDicteeTarget(cueTxt)
+      });
     }
   }
   return cues;
@@ -290,6 +308,7 @@ export function cleanOuterPunctuation(str: string): string {
   const s = str.trim().toLowerCase();
   return s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 }
+
 
 export default function App() {
   // Navigation & Screens
@@ -1591,7 +1610,8 @@ export default function App() {
       const currentCue = videoDicteeCues[videoDicteeCueIndex];
       if (!currentCue) return;
 
-      const expectedChar = (currentCue.text[typedText.length] || "").normalize('NFC');
+      const targetText = currentCue.normalizedText || normalizeVideoDicteeTarget(currentCue.text);
+      const expectedChar = (targetText[typedText.length] || "").normalize('NFC');
 
       if (typedChar === expectedChar) {
         if (settings.soundEffects) playSuccessSound();
@@ -1600,7 +1620,7 @@ export default function App() {
         const newText = typedText + expectedChar;
         setTypedText(newText);
 
-        if (newText === currentCue.text) {
+        if (newText === targetText) {
           setVideoDicteeCueIndex(prev => prev + 1);
           setTypedText("");
           if (videoRef.current) {
@@ -1896,6 +1916,20 @@ export default function App() {
     setCurrentScreen("practice");
   };
 
+  const handleSkipVideoDicteeCue = () => {
+    if (practiceType !== "video-dictee") return;
+    const nextIdx = videoDicteeCueIndex + 1;
+    setVideoDicteeCueIndex(nextIdx);
+    setTypedText("");
+
+    // Find next cue if any and play it
+    const nextCue = videoDicteeCues[nextIdx];
+    if (nextCue && videoRef.current) {
+      videoRef.current.currentTime = nextCue.start;
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // 4. Manual on-screen click inserter accent keys
   // ---------------------------------------------------------------------------
@@ -1970,6 +2004,12 @@ export default function App() {
   // Backspace key listener handled elegantly to enable correction
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     console.log("KEYDOWN", JSON.stringify({ key: e.key, code: e.code }));
+    if (practiceType === "video-dictee" && (e.key === "Escape" || e.code === "Escape")) {
+      e.preventDefault();
+      handleSkipVideoDicteeCue();
+      return;
+    }
+
     if (e.key === " " || e.code === "Space") {
       e.preventDefault();
       processTypedChar(" ");
@@ -4561,14 +4601,14 @@ export default function App() {
                       onClick={() => {
                         if (inputRef.current) inputRef.current.focus();
                       }}
-                      className={`w-full min-h-[90px] p-4 bg-[#111216]/70 border rounded-2xl text-zinc-200 text-sm font-serif leading-relaxed cursor-text transition-all shadow-inner relative flex flex-wrap items-center gap-x-[1px] gap-y-1 ${
+                      className={`w-full min-h-[90px] p-4 bg-[#111216]/70 border rounded-2xl text-[#10b981] text-2xl font-serif leading-relaxed cursor-text transition-all shadow-inner relative flex flex-wrap items-center gap-x-[1px] gap-y-1 ${
                         sentenceErrorFlash 
                           ? "border-rose-500 bg-rose-500/5 animate-shake shadow-[0_0_15px_rgba(239,68,68,0.25)]" 
                           : "border-white/5 hover:border-white/10"
                       }`}
                     >
                       {typedText.length === 0 ? (
-                        <span className="text-zinc-500 italic select-none">
+                        <span className="text-zinc-500 text-sm italic select-none">
                           Commencez à saisir ce que vous entendez...
                         </span>
                       ) : (
@@ -4576,7 +4616,7 @@ export default function App() {
                       )}
                       
                       {/* Blinking keyboard cursor */}
-                      <span className="w-[1.5px] h-4 bg-emerald-400 animate-pulse inline-block ml-0.5" />
+                      <span className="w-[1.5px] h-6 bg-emerald-400 animate-pulse inline-block ml-0.5" />
                     </div>
 
                     {/* Hidden input zone to capture precise localized French inputs */}
@@ -4592,20 +4632,30 @@ export default function App() {
 
                     {/* Controls Bar */}
                     <div className="flex items-center justify-between px-1">
-                      <button
-                        onClick={() => setVideoDicteeSubtitleVisible(!videoDicteeSubtitleVisible)}
-                        className={`px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer ${
-                          videoDicteeSubtitleVisible 
-                            ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
-                            : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
-                        }`}
-                      >
-                        {videoDicteeSubtitleVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        <span>{videoDicteeSubtitleVisible ? "Masquer les sous-titres" : "Afficher les sous-titres"}</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setVideoDicteeSubtitleVisible(!videoDicteeSubtitleVisible)}
+                          className={`px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer ${
+                            videoDicteeSubtitleVisible 
+                              ? "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" 
+                              : "bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10"
+                          }`}
+                        >
+                          {videoDicteeSubtitleVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          <span>{videoDicteeSubtitleVisible ? "Masquer les sous-titres" : "Afficher les sous-titres"}</span>
+                        </button>
+
+                        <button
+                          onClick={handleSkipVideoDicteeCue}
+                          className="px-3 py-1.5 flex items-center gap-1 bg-white/5 text-zinc-400 hover:text-zinc-200 border border-white/10 hover:bg-white/10 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer font-sans"
+                          title="Passer à la séquence suivante (Échap)"
+                        >
+                          <span>Passer →</span>
+                        </button>
+                      </div>
 
                       <span className="text-[9px] text-zinc-500 uppercase font-mono">
-                        Cliquez pour activer la frappe · Tapez parfaitement sans omission
+                        Activez la frappe · Écrivez parfaitement, ou appuyez sur Échap pour passer
                       </span>
                     </div>
 
