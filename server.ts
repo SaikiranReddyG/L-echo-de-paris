@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -180,6 +181,69 @@ French: ${sentence}`;
     res.status(500).json({
       error: error.message || "An unexpected translation failure occurred."
     });
+  }
+});
+
+// Notebook API routes
+app.get("/api/notebook", (req, res) => {
+  try {
+    const filePath = path.join(process.cwd(), "notebook.json");
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify({ sai: [], claude: [] }, null, 2));
+    }
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    res.json(data);
+  } catch (error) {
+    console.error("GET /api/notebook error:", error);
+    res.status(500).json({ error: "Failed to fetch notebook." });
+  }
+});
+
+app.post("/api/notebook/sai", (req, res) => {
+  try {
+    const { french, translation, usage, notes } = req.body;
+    const filePath = path.join(process.cwd(), "notebook.json");
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify({ sai: [], claude: [] }, null, 2));
+    }
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (!data.sai) data.sai = [];
+    
+    const newEntry = {
+      id: Date.now().toString(),
+      date: Date.now(),
+      french: french || "",
+      translation: translation || "",
+      usage: usage || "",
+      notes: notes || ""
+    };
+    
+    data.sai.push(newEntry);
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    res.json(newEntry);
+  } catch (error) {
+    console.error("POST /api/notebook/sai error:", error);
+    res.status(500).json({ error: "Failed to add entry." });
+  }
+});
+
+app.delete("/api/notebook/sai/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const filePath = path.join(process.cwd(), "notebook.json");
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: "Notebook file not found." });
+      return;
+    }
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (data.sai) {
+      data.sai = data.sai.filter((item: any) => item.id !== id);
+    }
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("DELETE /api/notebook/sai error:", error);
+    res.status(500).json({ error: "Failed to delete entry." });
   }
 });
 

@@ -309,11 +309,42 @@ export function cleanOuterPunctuation(str: string): string {
   return s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 }
 
+export function formatRelativeDate(timestamp: number): string {
+  if (!timestamp) return "";
+  const diffMs = Date.now() - timestamp;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+
+  if (diffSec < 60) {
+    return "à l'instant";
+  } else if (diffMin < 60) {
+    return `il y a ${diffMin} ${diffMin > 1 ? "minutes" : "minute"}`;
+  } else if (diffHr < 24) {
+    return `il y a ${diffHr} ${diffHr > 1 ? "heures" : "heure"}`;
+  } else {
+    const entryDate = new Date(timestamp);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    
+    if (entryDate >= yesterday && entryDate < today) {
+      return "hier";
+    }
+    
+    return entryDate.toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    });
+  }
+}
+
 
 export default function App() {
   // Navigation & Screens
   // "library" | "learn" | "practice" | "results"
-  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup">("library");
+  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet">("library");
 
   // Custom Training state
   const [practiceType, setPracticeType] = useState<PracticeType>("story");
@@ -373,6 +404,19 @@ export default function App() {
   const [videoDicteeTranslationVisible, setVideoDicteeTranslationVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Carnet Screen States
+  const [notebookSai, setNotebookSai] = useState<any[]>([]);
+  const [notebookClaude, setNotebookClaude] = useState<any[]>([]);
+  const [carnetWord, setCarnetWord] = useState("");
+  const [carnetTranslation, setCarnetTranslation] = useState("");
+  const [carnetUsage, setCarnetUsage] = useState("");
+  const [carnetNotes, setCarnetNotes] = useState("");
+  const [carnetSearch, setCarnetSearch] = useState("");
+  const [carnetLoading, setCarnetLoading] = useState(false);
+
+  const translationRef = useRef<HTMLInputElement>(null);
+  const usageRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     setVideoDicteeTranslation(null);
     setVideoDicteeTranslating(false);
@@ -427,6 +471,57 @@ export default function App() {
       }, 150);
     }
   }, [practiceType, videoDicteeCueIndex, videoDicteeFile, videoDicteeCues.length]);
+
+  const loadNotebook = async () => {
+    try {
+      const res = await fetch('/api/notebook');
+      const data = await res.json();
+      setNotebookSai((data.sai || []).slice().reverse());
+      setNotebookClaude((data.claude || []).slice().reverse());
+    } catch (e) {
+      console.error('Failed to load notebook', e);
+    }
+  };
+
+  useEffect(() => {
+    if (currentScreen === "carnet") {
+      loadNotebook();
+    }
+  }, [currentScreen]);
+
+  const handleCarnetAdd = async () => {
+    if (!carnetWord.trim()) return;
+    setCarnetLoading(true);
+    try {
+      await fetch('/api/notebook/sai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          french: carnetWord.trim(),
+          translation: carnetTranslation.trim(),
+          usage: carnetUsage.trim(),
+          notes: carnetNotes.trim()
+        })
+      });
+      setCarnetWord("");
+      setCarnetTranslation("");
+      setCarnetUsage("");
+      setCarnetNotes("");
+      await loadNotebook();
+    } catch (e) {
+      console.error(e);
+    }
+    setCarnetLoading(false);
+  };
+
+  const handleCarnetDelete = async (id: string) => {
+    try {
+      await fetch(`/api/notebook/sai/${id}`, { method: 'DELETE' });
+      await loadNotebook();
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+  };
 
   // Sync state values to refs so that the async voice looping callback can read the most up-to-date state
   const currentScreenRef = useRef(currentScreen);
@@ -2310,7 +2405,7 @@ export default function App() {
           
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
-          {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free")) && (
+          {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free") || currentScreen === "carnet") && (
             <div className="flex items-baseline gap-4 ml-6 border-l border-white/10 pl-6 h-full pb-0.5">
               <button
                 onClick={() => {
@@ -2354,6 +2449,22 @@ export default function App() {
                 {!settings.calibrationComplete && !settings.lettersComplete && (
                   <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-burgundy-hover rounded-full" />
                 )}
+              </button>
+              <button
+                onClick={() => {
+                  if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setCurrentScreen("carnet");
+                }}
+                className={`px-1 pb-1 text-xs font-semibold border-b-2 bg-transparent rounded-none border-t-0 border-l-0 border-r-0 transition-all cursor-pointer flex items-center gap-1.5 relative ${
+                  currentScreen === "carnet"
+                    ? "border-[#7B1E2B] text-white"
+                    : "border-transparent text-zinc-400 hover:text-white"
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Carnet</span>
               </button>
             </div>
           )}
@@ -2831,6 +2942,283 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* VIEW: CARNET SHORED NOTEBOOK */}
+        {currentScreen === "carnet" && (
+          <div className="w-full animate-fade-in flex flex-col gap-6">
+            
+            {/* Header row with back button */}
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setCurrentScreen("library")}
+                  className="px-3 py-1.5 flex items-center gap-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white text-xs font-semibold rounded-lg border border-white/10 transition-all cursor-pointer"
+                >
+                  <span>← Retour</span>
+                </button>
+                <div className="border-l border-white/10 pl-4">
+                  <h2 className="text-2xl sm:text-3xl font-serif text-white italic">Le Carnet de Vocabulaire</h2>
+                  <p className="text-xs text-zinc-400 font-sans mt-0.5">Carnet de notes partagé pour l'apprentissage du français</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick-add bar card at the top, full width */}
+            <div className="w-full bg-[#111216]/60 border border-white/5 rounded-2xl p-5 shadow-lg flex flex-col gap-4">
+              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                <span className="text-[10px] tracking-[0.2em] font-bold uppercase text-zinc-500 font-sans">
+                  Nouveau mot ou expression
+                </span>
+                <span className="text-[9px] text-zinc-400 font-mono">
+                  Sai's Quick-Add Form
+                </span>
+              </div>
+              
+              {/* Three input fields in a row grid */}
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr] gap-3">
+                {/* 1. Mot français */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Mot français</label>
+                  <input
+                    type="text"
+                    value={carnetWord}
+                    onChange={(e) => setCarnetWord(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        translationRef.current?.focus();
+                      } else if (e.key === "Enter") {
+                        handleCarnetAdd();
+                      }
+                    }}
+                    placeholder="se perdre"
+                    className="w-full px-3.5 py-2.5 bg-[#090a0d] border border-white/5 rounded-xl text-white text-base font-semibold placeholder-zinc-600 focus:outline-none focus:border-[#7B1E2B]/50 focus:ring-1 focus:ring-[#7B1E2B]/20 transition-all font-serif"
+                  />
+                </div>
+
+                {/* 2. Traduction */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Traduction</label>
+                  <input
+                    ref={translationRef}
+                    type="text"
+                    value={carnetTranslation}
+                    onChange={(e) => setCarnetTranslation(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        usageRef.current?.focus();
+                      } else if (e.key === "Enter") {
+                        handleCarnetAdd();
+                      }
+                    }}
+                    placeholder="to get lost"
+                    className="w-full px-3.5 py-2.5 bg-[#090a0d] border border-white/5 rounded-xl text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-[#7B1E2B]/50 focus:ring-1 focus:ring-[#7B1E2B]/20 transition-all font-sans"
+                  />
+                </div>
+
+                {/* 3. Exemple · Notes */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Exemple · Notes</label>
+                  <input
+                    ref={usageRef}
+                    type="text"
+                    value={carnetUsage}
+                    onChange={(e) => setCarnetUsage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleCarnetAdd();
+                      }
+                    }}
+                    placeholder="Je me suis perdu dans le quartier."
+                    className="w-full px-3.5 py-2.5 bg-[#090a0d] border border-white/5 rounded-xl text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-[#7B1E2B]/50 focus:ring-1 focus:ring-[#7B1E2B]/20 transition-all font-sans"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-white/5 mt-1">
+                <span className="text-[10px] text-zinc-500 font-sans">
+                  Astuce : Tapez Entrée dans n'importe quel champ pour enregistrer.
+                </span>
+                <button
+                  onClick={handleCarnetAdd}
+                  disabled={!carnetWord.trim() || carnetLoading}
+                  className={`px-4 py-2 flex items-center gap-1.5 rounded-xl font-bold uppercase tracking-wider text-xs transition-colors cursor-pointer ${
+                    !carnetWord.trim() || carnetLoading
+                      ? "bg-white/5 text-zinc-600 border border-white/5 cursor-not-allowed"
+                      : "bg-[#7B1E2B] hover:bg-[#962637] text-white border border-[#7B1E2B]"
+                  }`}
+                >
+                  {carnetLoading ? "Enregistrement..." : "Enregistrer ↵"}
+                </button>
+              </div>
+            </div>
+
+            {/* Search Bar section */}
+            <div className="relative w-full">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-zinc-500" />
+              </span>
+              <input
+                type="text"
+                value={carnetSearch}
+                onChange={(e) => setCarnetSearch(e.target.value)}
+                placeholder="Rechercher un mot..."
+                className="w-full pl-10 pr-4 py-2.5 bg-[#111216]/50 border border-white/5 rounded-xl text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-all font-sans"
+              />
+              {carnetSearch && (
+                <button
+                  onClick={() => setCarnetSearch("")}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Two-column layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              
+              {/* Left Column — Sai */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 font-sans">Sai</span>
+                    <span className="bg-purple-950/40 text-purple-400 border border-purple-900/40 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase font-sans">
+                      {notebookSai.length} {notebookSai.length > 1 ? "mots" : "mot"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {(() => {
+                    const filtered = notebookSai.filter(e => {
+                      if (!carnetSearch) return true;
+                      const q = carnetSearch.toLowerCase();
+                      return (
+                        (e.french || "").toLowerCase().includes(q) ||
+                        (e.translation || "").toLowerCase().includes(q) ||
+                        (e.usage || "").toLowerCase().includes(q)
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="w-full bg-[#111216]/20 border border-dashed border-white/5 rounded-2xl p-8 text-center">
+                          <p className="text-sm text-zinc-500 font-sans">
+                            {carnetSearch 
+                              ? `Aucun résultat pour « ${carnetSearch} ».` 
+                              : "Aucun mot encore. Ajoutez votre premier mot ci-dessus."}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((entry) => (
+                      <div 
+                        key={entry.id} 
+                        className="bg-[#111216]/60 border border-white/5 rounded-xl p-4 flex flex-col gap-2.5 shadow hover:border-white/10 transition-all"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col">
+                            <h3 className="text-lg font-medium text-white tracking-wide font-serif">
+                              {entry.french}
+                            </h3>
+                            {entry.translation && (
+                              <p className="text-xs text-zinc-400 font-sans mt-0.5">
+                                {entry.translation}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <button
+                            onClick={() => handleCarnetDelete(entry.id)}
+                            className="p-1 rounded bg-white/5 hover:bg-rose-950/30 hover:text-rose-400 text-zinc-500 border border-transparent hover:border-rose-900/30 transition-all cursor-pointer"
+                            title="Supprimer cette entrée"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {entry.usage && (
+                          <p className="text-xs sm:text-[13px] text-zinc-350 italic font-serif border-l-2 border-[#7B1E2B]/30 pl-3 leading-relaxed">
+                            {entry.usage}
+                          </p>
+                        )}
+
+                        {entry.notes && (
+                          <p className="text-[11px] text-zinc-500 font-sans leading-normal">
+                            {entry.notes}
+                          </p>
+                        )}
+
+                        <div className="border-t border-white/5 pt-1.5 flex items-center justify-between">
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {formatRelativeDate(entry.date)}
+                          </span>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Right Column — Claude */}
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase tracking-[0.2em] font-bold text-zinc-500 font-sans">Claude</span>
+                    <span className="bg-teal-950/40 text-teal-400 border border-teal-900/40 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase font-sans">
+                      notes
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {notebookClaude.length === 0 ? (
+                    <div className="w-full bg-[#111216]/20 border border-dashed border-white/5 rounded-2xl p-8 text-center">
+                      <p className="text-sm text-zinc-500 font-sans">
+                        Aucune note de Claude pour l'instant.
+                      </p>
+                    </div>
+                  ) : (
+                    notebookClaude.map((entry) => (
+                      <div 
+                        key={entry.id || Math.random().toString()} 
+                        className="bg-[#111216]/60 border border-white/5 rounded-xl p-4 flex flex-col gap-3 shadow hover:border-white/10 transition-all"
+                      >
+                        <p className="text-sm text-zinc-350 font-sans leading-relaxed select-text whitespace-pre-line">
+                          {entry.content}
+                        </p>
+
+                        {entry.tags && entry.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {entry.tags.map((tag: string) => (
+                              <span 
+                                key={tag} 
+                                className="px-1.5 py-0.5 rounded bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[9px] font-bold tracking-wider uppercase font-sans"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="border-t border-white/5 pt-1.5">
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {formatRelativeDate(entry.date)}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+
           </div>
         )}
 

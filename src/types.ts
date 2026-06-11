@@ -98,4 +98,6 @@ export interface SrtCue {
   normalizedText?: string;
 }
 
+export type currentScreen = "library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet";
+
 
