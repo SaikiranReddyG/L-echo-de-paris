@@ -617,6 +617,10 @@ export default function App() {
   const [drillTargetFlash, setDrillTargetFlash] = useState<boolean>(false);
   const [completedDrillDetails, setCompletedDrillDetails] = useState<DrillSessionAttempt | null>(null);
 
+  // Custom drill states
+  const [customDrillInput, setCustomDrillInput] = useState("");
+  const [customDrillOpen, setCustomDrillOpen] = useState<"wordsShort" | "wordsLong" | "phrases" | "flow" | null>(null);
+
   const showStageFlash = (msg: string) => {
     setStageFlashMessage(msg);
     setTimeout(() => {
@@ -1230,6 +1234,30 @@ export default function App() {
     }, 100);
 
     setCurrentScreen("practice");
+  };
+
+  const handleStartCustomDrill = () => {
+    if (!customDrillOpen || !customDrillInput.trim()) return;
+    
+    const items = customDrillInput
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    
+    if (items.length === 0) return;
+
+    setCustomDrillOpen(null);
+    setCustomDrillInput("");
+
+    // Start the drill session normally but override the items immediately after
+    startDrillSession(customDrillOpen);
+    
+    // Override drillItems with custom content after startDrillSession sets state
+    setTimeout(() => {
+      setDrillItems(items);
+      setDrillItemIndex(0);
+      speakDrillTargetText(items[0]);
+    }, 0);
   };
 
   const handleStopLettersDrill = async () => {
@@ -3384,12 +3412,23 @@ export default function App() {
 
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
-                  <button
-                    onClick={() => startDrillSession("flow")}
-                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
-                  >
-                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCustomDrillOpen("flow");
+                        setCustomDrillInput("");
+                      }}
+                      className="bg-transparent hover:bg-white/5 text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer font-sans"
+                    >
+                      Mes mots →
+                    </button>
+                    <button
+                      onClick={() => startDrillSession("flow")}
+                      className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                    >
+                      Commencer <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -3419,12 +3458,23 @@ export default function App() {
 
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
-                  <button
-                    onClick={() => startDrillSession("wordsShort")}
-                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
-                  >
-                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCustomDrillOpen("wordsShort");
+                        setCustomDrillInput("");
+                      }}
+                      className="bg-transparent hover:bg-white/5 text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer font-sans"
+                    >
+                      Mes mots →
+                    </button>
+                    <button
+                      onClick={() => startDrillSession("wordsShort")}
+                      className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                    >
+                      Commencer <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -3454,12 +3504,23 @@ export default function App() {
 
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
-                  <button
-                    onClick={() => startDrillSession("wordsLong")}
-                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
-                  >
-                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCustomDrillOpen("wordsLong");
+                        setCustomDrillInput("");
+                      }}
+                      className="bg-transparent hover:bg-white/5 text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer font-sans"
+                    >
+                      Mes mots →
+                    </button>
+                    <button
+                      onClick={() => startDrillSession("wordsLong")}
+                      className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                    >
+                      Commencer <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -3489,12 +3550,23 @@ export default function App() {
 
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between mt-4 relative z-10">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider font-sans">Entraîner</span>
-                  <button
-                    onClick={() => startDrillSession("phrases")}
-                    className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
-                  >
-                    Commencer l'exercice <ChevronRight className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCustomDrillOpen("phrases");
+                        setCustomDrillInput("");
+                      }}
+                      className="bg-transparent hover:bg-white/5 text-zinc-400 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer font-sans"
+                    >
+                      Mes mots →
+                    </button>
+                    <button
+                      onClick={() => startDrillSession("phrases")}
+                      className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
+                    >
+                      Commencer <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -6190,6 +6262,71 @@ export default function App() {
                 </div>
               </div>
 
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* -----------------------------------------------------------------------
+          MODAL OVERLAY 3: CUSTOM DRILL INPUT PANEL
+          ----------------------------------------------------------------------- */}
+      {customDrillOpen !== null && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#111216] border border-white/10 max-w-lg w-full rounded-2xl shadow-2xl relative overflow-hidden animate-fade-in font-sans">
+            
+            <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#15161c]">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-burgundy" />
+                <h3 className="text-base font-serif text-white">Mes mots personnalisés</h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setCustomDrillOpen(null);
+                  setCustomDrillInput("");
+                }}
+                className="p-1 rounded bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <p className="text-zinc-500 text-xs">
+                  {customDrillOpen === "wordsShort" || customDrillOpen === "wordsLong"
+                    ? "Un mot ou expression par ligne."
+                    : "Une phrase complète par ligne."}
+                </p>
+                <textarea
+                  rows={8}
+                  value={customDrillInput}
+                  onChange={(e) => setCustomDrillInput(e.target.value)}
+                  placeholder={customDrillOpen === "wordsShort" || customDrillOpen === "wordsLong"
+                    ? "Entrez vos mots ici...\nExemple:\nbonjour\nmerci\nordinateur"
+                    : "Entrez vos phrases ici...\nExemple:\nJe vais au marché.\nIl fait un temps magnifique aujourd'hui."}
+                  className="bg-zinc-950 border border-white/5 focus:border-[#7B1E2B]/50 rounded-lg p-3 text-sm text-white focus:outline-none font-sans leading-relaxed animate-none w-full mt-2"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-white/5">
+                <button
+                  onClick={() => {
+                    setCustomDrillOpen(null);
+                    setCustomDrillInput("");
+                  }}
+                  className="px-4 py-2 bg-transparent text-zinc-400 hover:text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleStartCustomDrill}
+                  disabled={!customDrillInput.trim()}
+                  className="px-5 py-2.5 bg-[#7B1E2B] hover:bg-[#962637] disabled:bg-white/5 disabled:text-zinc-650 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                >
+                  Lancer →
+                </button>
+              </div>
             </div>
 
           </div>
