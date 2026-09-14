@@ -1,4 +1,319 @@
 {
-  "sai": [],
-  "claude": []
+  "sai": [
+    {
+      "id": "1781184073115",
+      "date": 1781184073115,
+      "french": "prend",
+      "translation": "to take",
+      "usage": "elle prend son panier",
+      "notes": ""
+    },
+    {
+      "id": "1781184120909",
+      "date": 1781184120909,
+      "french": "remplit",
+      "translation": "to fill",
+      "usage": "L'odeur remplit l'air",
+      "notes": ""
+    },
+    {
+      "id": "1781184181335",
+      "date": 1781184181335,
+      "french": "lui",
+      "translation": "to her or to him",
+      "usage": "Un vendeur lui propose",
+      "notes": ""
+    },
+    {
+      "id": "1781184252334",
+      "date": 1781184252334,
+      "french": "morceau",
+      "translation": "piece or chunk",
+      "usage": "Un morceau de fromage",
+      "notes": ""
+    },
+    {
+      "id": "1781184484247",
+      "date": 1781184484247,
+      "french": "choisit",
+      "translation": "chooses",
+      "usage": "elle choisit tousjour les meilleurs films",
+      "notes": ""
+    },
+    {
+      "id": "1781184781416",
+      "date": 1781184781416,
+      "french": "va",
+      "translation": "going to",
+      "usage": "elle va aller au marché",
+      "notes": ""
+    },
+    {
+      "id": "1781184798076",
+      "date": 1781184798076,
+      "french": "ce",
+      "translation": "this or that",
+      "usage": "ce matin",
+      "notes": ""
+    },
+    {
+      "id": "1781185136528",
+      "date": 1781185136528,
+      "french": "canape",
+      "translation": "couch",
+      "usage": "Le canapé est dans le coin du salon.",
+      "notes": ""
+    },
+    {
+      "id": "1781185151476",
+      "date": 1781185151476,
+      "french": "coin",
+      "translation": "corner",
+      "usage": "Le canapé est dans le coin du salon.",
+      "notes": ""
+    },
+    {
+      "id": "1781185264035",
+      "date": 1781185264035,
+      "french": "L'enseigne",
+      "translation": "sign",
+      "usage": "je ne trouve pas le magasin, l'enseigne est trop petite",
+      "notes": ""
+    },
+    {
+      "id": "1781186054521",
+      "date": 1781186054521,
+      "french": "S'arrete - S'arreter - s'est arreté",
+      "translation": "STOP = happening now - To stop - has stopped",
+      "usage": "Il s'arrete,  Je dois s'arreter, il s'est arreté",
+      "notes": ""
+    },
+    {
+      "id": "1781188937612",
+      "date": 1781188937612,
+      "french": "donner",
+      "translation": "to give",
+      "usage": "il lui donne un bon prix",
+      "notes": ""
+    },
+    {
+      "id": "1781188970823",
+      "date": 1781188970823,
+      "french": "quartier",
+      "translation": "neighborhood",
+      "usage": "mon quartier est clame",
+      "notes": ""
+    },
+    {
+      "id": "1781189062249",
+      "date": 1781189062249,
+      "french": "beau - bel - belle - beaux - belles",
+      "translation": "nice - handsome - beautiful",
+      "usage": "un bel homme, une belle journée, de beaux légumes",
+      "notes": ""
+    },
+    {
+      "id": "1781189090204",
+      "date": 1781189090204,
+      "french": "son",
+      "translation": "his or her or its",
+      "usage": "son panier",
+      "notes": ""
+    },
+    {
+      "id": "1781189131767",
+      "date": 1781189131767,
+      "french": "en suite",
+      "translation": "then or next or afterwards",
+      "usage": "il choisit le fromage ensuite il prend des courgettes",
+      "notes": ""
+    },
+    {
+      "id": "1781189339085",
+      "date": 1781189339085,
+      "french": "sourit",
+      "translation": "smiles",
+      "usage": "il a souri",
+      "notes": ""
+    },
+    {
+      "id": "1781190436336",
+      "date": 1781190436336,
+      "french": "oiaseau",
+      "translation": "bird",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1781190452202",
+      "date": 1781190452202,
+      "french": "soleil",
+      "translation": "sun",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1781364284476",
+      "date": 1781364284476,
+      "french": "manque",
+      "translation": "lack / missing",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782285400066",
+      "date": 1782285400067,
+      "french": "Si vous etes",
+      "translation": "if you're in",
+      "usage": "Si vous etes dans l'hemisphere nord",
+      "notes": ""
+    },
+    {
+      "id": "1782286362156",
+      "date": 1782286362156,
+      "french": "égalment",
+      "translation": "also",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782286384950",
+      "date": 1782286384950,
+      "french": "soule  or sous",
+      "translation": "under",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782286629550",
+      "date": 1782286629550,
+      "french": "connaitre / connu / connue / connus / connues",
+      "translation": "to know a  person or place or  a thing",
+      "usage": "Des technologies connues",
+      "notes": ""
+    },
+    {
+      "id": "1782287009841",
+      "date": 1782287009841,
+      "french": "attendre / attendue",
+      "translation": "awaited or expected or looked forward to",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782287026472",
+      "date": 1782287026472,
+      "french": "car",
+      "translation": "because / since",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782287498392",
+      "date": 1782287498392,
+      "french": "à ce moment-là",
+      "translation": "at that time / at that moment",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782287710638",
+      "date": 1782287710638,
+      "french": "endroits",
+      "translation": "places",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782287770557",
+      "date": 1782287770557,
+      "french": "plages",
+      "translation": "beaches",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782287910611",
+      "date": 1782287910611,
+      "french": "en plein air",
+      "translation": "outdoor",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782304702589",
+      "date": 1782304702589,
+      "french": "trouve",
+      "translation": "find or found",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782304969303",
+      "date": 1782304969303,
+      "french": "Comme d'habitude",
+      "translation": "as usual",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782305542086",
+      "date": 1782305542086,
+      "french": "vite",
+      "translation": "quickly or fast",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782305601426",
+      "date": 1782305601426,
+      "french": "rien",
+      "translation": "nothing or anything",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782305824240",
+      "date": 1782305824240,
+      "french": "fois",
+      "translation": "time or instances count",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782305958846",
+      "date": 1782305958846,
+      "french": "savez",
+      "translation": "know",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782306000418",
+      "date": 1782306000418,
+      "french": "penser",
+      "translation": "to think",
+      "usage": "",
+      "notes": ""
+    },
+    {
+      "id": "1782306487849",
+      "date": 1782306487850,
+      "french": "mais",
+      "translation": "but",
+      "usage": "",
+      "notes": ""
+    }
+  ],
+  "claude": [
+    {
+      "id": "claude-1",
+      "date": 1781172800000,
+      "content": "You wrote \"se prendre\" with the translation \"to get lost\" — that's not right. \"Se prendre\" means \"to take oneself\" and is used in expressions like s'en prendre à quelqu'un (to take it out on someone).\n\nThe word you want is \"se perdre\" — to get lost. And your usage sentence should be: Je me suis perdu dans le quartier.\n\nAlso \"prender\" is not a French word — the verb is \"perdre\". Easy to mix up when you're still building muscle memory for the vocabulary.",
+      "tags": [
+        "correction",
+        "vocabulaire"
+      ]
+    }
+  ]
 }

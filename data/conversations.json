@@ -1,0 +1,75 @@
+{
+  "au-cafe": {
+    "id": "claude-convo-au-cafe",
+    "title": "Au café",
+    "scenario": "Vous entrez dans un petit café parisien pour commander un café et un croissant.",
+    "scenarioEn": "You walk into a small Parisian café to order a coffee and a croissant.",
+    "level": "beginner",
+    "roles": {
+      "a": { "label": "Le client", "labelEn": "The customer" },
+      "b": { "label": "Le serveur", "labelEn": "The waiter" }
+    },
+    "exchanges": [
+      {
+        "speaker": "b",
+        "french": "Bonjour ! Bienvenue. Qu'est-ce que je vous sers ?",
+        "english": "Hello! Welcome. What can I get you?"
+      },
+      {
+        "speaker": "a",
+        "french": "Bonjour, je voudrais un café crème, s'il vous plaît.",
+        "english": "Hello, I'd like a café crème, please.",
+        "hint": "Bonjour, je voudrais un café..."
+      },
+      {
+        "speaker": "b",
+        "french": "Très bien. Et avec ceci ?",
+        "english": "Very well. And with that?"
+      },
+      {
+        "speaker": "a",
+        "french": "Un croissant au beurre, s'il vous plaît.",
+        "english": "A butter croissant, please.",
+        "hint": "Un croissant..."
+      },
+      {
+        "speaker": "b",
+        "french": "Excellent choix. Vous prenez sur place ou à emporter ?",
+        "english": "Excellent choice. Are you having it here or to go?"
+      },
+      {
+        "speaker": "a",
+        "french": "Sur place, merci.",
+        "english": "Here, thanks.",
+        "hint": "Sur place..."
+      },
+      {
+        "speaker": "b",
+        "french": "D'accord. Ça fait quatre euros cinquante, s'il vous plaît.",
+        "english": "Alright. That'll be four euros fifty, please."
+      },
+      {
+        "speaker": "a",
+        "french": "Voilà. Merci beaucoup !",
+        "english": "Here you go. Thank you very much!",
+        "hint": "Voilà. Merci..."
+      },
+      {
+        "speaker": "b",
+        "french": "Merci à vous. Installez-vous, j'arrive tout de suite.",
+        "english": "Thank you. Have a seat, I'll be right there."
+      }
+    ],
+    "glossary": [
+      { "french": "un café crème", "english": "a coffee with steamed milk" },
+      { "french": "s'il vous plaît", "english": "please (formal)" },
+      { "french": "et avec ceci", "english": "and with that / anything else" },
+      { "french": "au beurre", "english": "with butter / butter-style" },
+      { "french": "sur place", "english": "here / for here (dine in)" },
+      { "french": "à emporter", "english": "to go / takeaway" },
+      { "french": "ça fait", "english": "that comes to / that'll be" },
+      { "french": "installez-vous", "english": "have a seat / make yourself comfortable" },
+      { "french": "tout de suite", "english": "right away / immediately" }
+    ]
+  }
+}

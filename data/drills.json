@@ -1,0 +1,73 @@
+{
+  "session4": {
+    "title": "Session 4 — Le marché",
+    "words_short": ["va", "ce", "son", "lui", "met", "bon", "prix", "coin"],
+    "words_long": ["boulangerie", "courgettes", "fromage de chèvre", "légumes frais", "vendeur souriant"],
+    "phrases": [
+      "Elle va au marché ce matin.",
+      "Un vendeur lui propose un morceau de fromage.",
+      "Elle choisit les plus beaux légumes.",
+      "Il lui donne un bon prix.",
+      "Elle remplit son panier de courgettes fraîches."
+    ],
+    "dictee": [
+      "Elle prend son panier et va au marché.",
+      "Le vendeur sourit et lui donne un bon prix.",
+      "Elle choisit un morceau de fromage de chèvre.",
+      "Les légumes sont frais ce matin."
+    ]
+  },
+  "session5": {
+    "title": "Session 5 — Expressions & possessifs",
+    "words_short": ["connue", "enfants", "souvent", "endroits", "car", "anecdote", "vite", "rien", "fois", "taille", "attendu", "changé", "pense", "savez", "avez", "son", "sa", "ses"],
+    "words_long": ["pour n'en citer que trois", "également connue sous le nom de", "en plein air", "rien que", "à ce moment-là", "particulièrement"],
+    "phrases": [
+      "Paris est également connue sous le nom de Ville Lumière.",
+      "Il y a beaucoup d'endroits à visiter, pour n'en citer que trois.",
+      "Les enfants jouent souvent en plein air.",
+      "Rien que cette anecdote vaut le détour.",
+      "À ce moment-là, tout a changé.",
+      "Elle pense particulièrement à ses enfants.",
+      "Savez-vous que sa taille a changé trois fois ?",
+      "Il court vite, car son bus est attendu dans deux minutes.",
+      "Avez-vous vu ses endroits préférés ?",
+      "Rien n'a changé depuis la dernière fois."
+    ],
+    "dictee": [
+      "Paris est également connue sous le nom de Ville Lumière.",
+      "Les enfants jouent souvent en plein air, particulièrement en été.",
+      "Pour n'en citer que trois, voici ses endroits préférés.",
+      "À ce moment-là, sa vie a changé vite.",
+      "Savez-vous que rien que cette anecdote est connue dans le monde entier ?",
+      "Il pense à son fils, sa fille et ses amis.",
+      "Avez-vous attendu longtemps ? Car la taille de la file a changé trois fois.",
+      "Elle est particulièrement connue pour ses enfants talentueux."
+    ],
+    "glossary": [
+      {"french": "pour n'en citer que trois", "english": "to name just three"},
+      {"french": "également connue sous le nom de", "english": "also known by the name of"},
+      {"french": "en plein air", "english": "outdoors, in the open air"},
+      {"french": "rien que", "english": "just, alone (emphasis)"},
+      {"french": "à ce moment-là", "english": "at that moment"},
+      {"french": "connue", "english": "known, famous (fem. past participle of connaître)"},
+      {"french": "enfants", "english": "children"},
+      {"french": "particulièrement", "english": "particularly, especially"},
+      {"french": "souvent", "english": "often"},
+      {"french": "endroits", "english": "places, spots"},
+      {"french": "car", "english": "because, for (formal)"},
+      {"french": "anecdote", "english": "anecdote, short story"},
+      {"french": "vite", "english": "quickly, fast"},
+      {"french": "rien", "english": "nothing"},
+      {"french": "fois", "english": "time(s) (occurrence)"},
+      {"french": "taille", "english": "size, height"},
+      {"french": "attendu", "english": "waited (past participle of attendre)"},
+      {"french": "changé", "english": "changed (past participle of changer)"},
+      {"french": "pense", "english": "thinks (from penser)"},
+      {"french": "savez", "english": "know (vous form of savoir)"},
+      {"french": "avez", "english": "have (vous form of avoir)"},
+      {"french": "son", "english": "his/her (masc. singular possessive)"},
+      {"french": "sa", "english": "his/her (fem. singular possessive)"},
+      {"french": "ses", "english": "his/her (plural possessive)"}
+    ]
+  }
+}

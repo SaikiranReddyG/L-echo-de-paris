@@ -8,7 +8,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ?? 3001;
 
 app.use(express.json());
 
@@ -245,6 +245,35 @@ app.delete("/api/notebook/sai/:id", (req, res) => {
     console.error("DELETE /api/notebook/sai error:", error);
     res.status(500).json({ error: "Failed to delete entry." });
   }
+});
+
+// Claude direct-write data routes (read-only from app side)
+const dataDir = path.join(process.cwd(), "data");
+
+function readJsonFile(filename: string): any {
+  const filePath = path.join(dataDir, filename);
+  try {
+    if (!fs.existsSync(filePath)) return {};
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+app.get("/api/lessons", (_req, res) => {
+  res.json(readJsonFile("lessons.json"));
+});
+
+app.get("/api/stories", (_req, res) => {
+  res.json(readJsonFile("stories.json"));
+});
+
+app.get("/api/drills", (_req, res) => {
+  res.json(readJsonFile("drills.json"));
+});
+
+app.get("/api/conversations", (_req, res) => {
+  res.json(readJsonFile("conversations.json"));
 });
 
 // Start server

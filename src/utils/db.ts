@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Story, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson } from "../types";
+import { Story, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, ConversationData } from "../types";
 import { builtInStories } from "../data/builtInStories";
 
 const DB_NAME = "FrenchTypingAppDB";
@@ -376,4 +376,153 @@ export async function dbImportJSON(jsonStr: string): Promise<{ importedStories: 
   }
 
   return { importedStories, importedSessions };
+}
+
+// ---------------------------------------------------------------------------
+// SYNC FROM SERVER (Claude direct-write JSON files)
+// ---------------------------------------------------------------------------
+
+export interface DrillSession {
+  title: string;
+  words_short?: string[];
+  words_long?: string[];
+  phrases?: string[];
+  dictee?: string[];
+}
+
+export interface DrillsData {
+  [sessionKey: string]: DrillSession;
+}
+
+export async function syncFromServer(): Promise<{ newLessons: number; newStories: number }> {
+  let newLessons = 0;
+  let newStories = 0;
+
+  try {
+    // Sync lessons
+    const lessonsRes = await fetch("/api/lessons");
+    if (lessonsRes.ok) {
+      const lessonsData = await lessonsRes.json();
+      const db = await openDB();
+
+      for (const [key, lessonRaw] of Object.entries(lessonsData)) {
+        const lesson = lessonRaw as any;
+        const id = lesson.id || `claude-lesson-${key}`;
+
+        // Check if already exists in IndexedDB
+        const existing = await new Promise<Lesson | null>((resolve) => {
+          const tx = db.transaction("lessons", "readonly");
+          const req = tx.objectStore("lessons").get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+
+        if (existing) {
+          // Update content but preserve user state
+          const updated = {
+            ...existing,
+            title: lesson.title || existing.title,
+            words: lesson.words || existing.words,
+            sentences: lesson.sentences || existing.sentences,
+            paragraph: lesson.paragraph || existing.paragraph,
+            translation: lesson.translation || existing.translation,
+            glossary: lesson.glossary || existing.glossary,
+          };
+          await saveLesson(updated);
+        } else {
+          // New lesson — insert
+          const newLesson: Lesson = {
+            id,
+            title: lesson.title || key,
+            date: lesson.date || Date.now(),
+            words: lesson.words || [],
+            sentences: lesson.sentences || [],
+            paragraph: lesson.paragraph || "",
+            translation: lesson.translation || "",
+            completed: false,
+            glossary: lesson.glossary || [],
+          };
+          await saveLesson(newLesson);
+          newLessons++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync lessons from server:", err);
+  }
+
+  try {
+    // Sync stories
+    const storiesRes = await fetch("/api/stories");
+    if (storiesRes.ok) {
+      const storiesData = await storiesRes.json();
+      const db = await openDB();
+
+      for (const [key, storyRaw] of Object.entries(storiesData)) {
+        const story = storyRaw as any;
+        const id = story.id || `claude-story-${key}`;
+
+        const existing = await new Promise<Story | null>((resolve) => {
+          const tx = db.transaction("stories", "readonly");
+          const req = tx.objectStore("stories").get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+
+        if (existing) {
+          // Update content, preserve user state
+          const updated = {
+            ...existing,
+            title: story.title || existing.title,
+            level: story.level || existing.level,
+            sentences: story.sentences || existing.sentences,
+            fullTranslation: story.fullTranslation || existing.fullTranslation,
+            glossary: story.glossary || existing.glossary,
+          };
+          await saveStory(updated);
+        } else {
+          const newStory: Story = {
+            id,
+            title: story.title || key,
+            level: story.level || "beginner",
+            sentences: story.sentences || [],
+            createdAt: story.createdAt || Date.now(),
+            isBuiltIn: false,
+            fullTranslation: story.fullTranslation || "",
+            glossary: story.glossary || [],
+          };
+          await saveStory(newStory);
+          newStories++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync stories from server:", err);
+  }
+
+  return { newLessons, newStories };
+}
+
+export async function fetchConversations(): Promise<{[key: string]: ConversationData}> {
+  try {
+    const res = await fetch("/api/conversations");
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to fetch conversations from server:", err);
+  }
+  return {};
+}
+
+export async function fetchDrills(): Promise<DrillsData> {
+  try {
+    const res = await fetch("/api/drills");
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Failed to fetch drills from server:", err);
+  }
+  return {};
 }

@@ -1,0 +1,74 @@
+{
+  "session4-marche": {
+    "id": "claude-lesson-session4-marche",
+    "title": "Le marché du quartier",
+    "date": 1781172800000,
+    "words": ["va", "ce", "prend", "remplit", "lui", "morceau", "chèvre", "choisit", "courgettes", "s'arrêter", "met", "donne"],
+    "sentences": [
+      "Elle va au marché ce matin.",
+      "Elle prend son panier et sort de la maison.",
+      "Un vendeur lui propose un morceau de fromage de chèvre.",
+      "Elle choisit les plus beaux légumes du marché.",
+      "Elle remplit son panier de courgettes fraîches.",
+      "Il lui donne un bon prix pour les légumes."
+    ],
+    "paragraph": "Ce matin, elle va au marché du quartier. Elle prend son panier et sort de la maison. Les légumes sont frais et beaux. Un vendeur lui propose un morceau de fromage de chèvre. Elle choisit les plus belles courgettes et les met dans son panier. Le vendeur sourit et lui donne un bon prix. Elle remplit son panier et s'arrête pour goûter le fromage. C'est une belle journée au marché.",
+    "translation": "This morning, she goes to the neighborhood market. She takes her basket and leaves the house. The vegetables are fresh and beautiful. A vendor offers her a piece of goat cheese. She chooses the most beautiful zucchini and puts them in her basket. The vendor smiles and gives her a good price. She fills her basket and stops to taste the cheese. It's a beautiful day at the market.",
+    "glossary": [
+      {"french": "va", "english": "goes (from aller)"},
+      {"french": "ce", "english": "this/that"},
+      {"french": "prend", "english": "takes (from prendre)"},
+      {"french": "remplit", "english": "fills (from remplir)"},
+      {"french": "lui", "english": "to him/her"},
+      {"french": "morceau", "english": "piece, chunk"},
+      {"french": "chèvre", "english": "goat (cheese)"},
+      {"french": "choisit", "english": "chooses (from choisir)"},
+      {"french": "courgettes", "english": "zucchini"},
+      {"french": "s'arrêter", "english": "to stop"},
+      {"french": "met", "english": "puts (from mettre)"},
+      {"french": "donne", "english": "gives (from donner)"}
+    ]
+  },
+  "session5-expressions": {
+    "id": "claude-lesson-session5-expressions",
+    "title": "Expressions courantes & les possessifs",
+    "date": 1781259200000,
+    "words": ["connue", "enfants", "particulièrement", "souvent", "endroits", "car", "anecdote", "vite", "rien", "fois", "taille", "attendu", "changé", "pense", "savez", "avez", "son", "sa", "ses"],
+    "sentences": [
+      "Paris est également connue sous le nom de Ville Lumière.",
+      "Les enfants jouent souvent en plein air.",
+      "Il y a beaucoup d'endroits à visiter, pour n'en citer que trois.",
+      "Rien que cette anecdote est particulièrement amusante.",
+      "À ce moment-là, sa vie a changé vite.",
+      "Savez-vous que son fils a attendu trois fois ?"
+    ],
+    "paragraph": "Paris est une ville particulièrement connue dans le monde entier, également connue sous le nom de Ville Lumière. Les enfants jouent souvent en plein air dans ses parcs et ses jardins. Il y a beaucoup d'endroits à visiter — pour n'en citer que trois : la tour Eiffel, le Louvre et Notre-Dame. Voici une anecdote amusante : savez-vous que la taille de la tour Eiffel a changé plusieurs fois ? Rien que cette histoire vaut le détour. À ce moment-là, tout le monde a attendu sa réponse. Son guide pense que c'est vrai, car il l'a lu dans un livre. Avez-vous déjà visité ses endroits préférés ? Il faut y aller vite, car rien ne dure pour toujours.",
+    "translation": "Paris is a particularly well-known city in the whole world, also known by the name City of Light. Children often play outdoors in its parks and gardens. There are many places to visit — to name just three: the Eiffel Tower, the Louvre, and Notre-Dame. Here is a funny anecdote: did you know that the height of the Eiffel Tower has changed several times? That story alone is worth the detour. At that moment, everyone waited for his answer. His guide thinks it's true, because he read it in a book. Have you already visited his favorite places? You have to go quickly, because nothing lasts forever.",
+    "glossary": [
+      {"french": "pour n'en citer que trois", "english": "to name just three"},
+      {"french": "également connue sous le nom de", "english": "also known by the name of"},
+      {"french": "en plein air", "english": "outdoors, in the open air"},
+      {"french": "rien que", "english": "just, alone (emphasis)"},
+      {"french": "à ce moment-là", "english": "at that moment"},
+      {"french": "connue", "english": "known, famous (fem. past participle of connaître)"},
+      {"french": "enfants", "english": "children"},
+      {"french": "particulièrement", "english": "particularly, especially"},
+      {"french": "souvent", "english": "often"},
+      {"french": "endroits", "english": "places, spots"},
+      {"french": "car", "english": "because, for (formal)"},
+      {"french": "anecdote", "english": "anecdote, short story"},
+      {"french": "vite", "english": "quickly, fast"},
+      {"french": "rien", "english": "nothing"},
+      {"french": "fois", "english": "time(s) (occurrence)"},
+      {"french": "taille", "english": "size, height"},
+      {"french": "attendu", "english": "waited (past participle of attendre)"},
+      {"french": "changé", "english": "changed (past participle of changer)"},
+      {"french": "pense", "english": "thinks (from penser)"},
+      {"french": "savez", "english": "know (vous form of savoir)"},
+      {"french": "avez", "english": "have (vous form of avoir)"},
+      {"french": "son", "english": "his/her (masc. singular possessive)"},
+      {"french": "sa", "english": "his/her (fem. singular possessive)"},
+      {"french": "ses", "english": "his/her (plural possessive)"}
+    ]
+  }
+}

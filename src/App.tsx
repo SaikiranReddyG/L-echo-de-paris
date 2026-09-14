@@ -31,9 +31,10 @@ import {
   Keyboard,
   Video,
   Eye,
-  EyeOff
+  EyeOff,
+  MessageCircle
 } from "lucide-react";
-import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, GlossaryEntry, SrtCue, PracticeType } from "./types";
+import { Sentence, Story, StoryLevel, SessionAttempt, AppSettings, DrillSessionAttempt, Lesson, GlossaryEntry, SrtCue, PracticeType, ConversationData, ConversationExchange } from "./types";
 import { 
   initDB, 
   getStories, 
@@ -50,7 +51,11 @@ import {
   getDrillSessions,
   getLessons,
   saveLesson,
-  deleteLesson
+  deleteLesson,
+  syncFromServer,
+  fetchDrills,
+  fetchConversations,
+  DrillsData
 } from "./utils/db";
 import { playSuccessSound, playErrorSound } from "./utils/sound";
 import { FR_SHORT, FR_MEDIUM, FR_LONG } from "./data/frenchWords";
@@ -344,7 +349,7 @@ export function formatRelativeDate(timestamp: number): string {
 export default function App() {
   // Navigation & Screens
   // "library" | "learn" | "practice" | "results"
-  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet">("library");
+  const [currentScreen, setCurrentScreen] = useState<"library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet" | "conversation">("library");
 
   // Custom Training state
   const [practiceType, setPracticeType] = useState<PracticeType>("story");
@@ -360,6 +365,8 @@ export default function App() {
   const [freeModeGlossary, setFreeModeGlossary] = useState<GlossaryEntry[]>([]);
   const [freeModeTranslation, setFreeModeTranslation] = useState<string>("");
   const [freeModeTranslationExpanded, setFreeModeTranslationExpanded] = useState<boolean>(false);
+  const [freeModeSentenceBounds, setFreeModeSentenceBounds] = useState<number[]>([]);
+  const [freeModeCurrentSentenceIdx, setFreeModeCurrentSentenceIdx] = useState<number>(0);
   
   // DB Loaded States
   const [stories, setStories] = useState<Story[]>([]);
@@ -413,6 +420,22 @@ export default function App() {
   const [carnetNotes, setCarnetNotes] = useState("");
   const [carnetSearch, setCarnetSearch] = useState("");
   const [carnetLoading, setCarnetLoading] = useState(false);
+
+  // Conversation Mode State
+  const [conversations, setConversations] = useState<{[key: string]: ConversationData}>({});
+  const [activeConversation, setActiveConversation] = useState<ConversationData | null>(null);
+  const [convoExchangeIndex, setConvoExchangeIndex] = useState(0);
+  const [convoHintMode, setConvoHintMode] = useState<"echo" | "guide" | "libre">("echo");
+  const [convoRole, setConvoRole] = useState<"a" | "b">("a");
+  const [convoAutoTts, setConvoAutoTts] = useState(true);
+  const [convoCompleted, setConvoCompleted] = useState(false);
+  const [convoAllDone, setConvoAllDone] = useState(false);
+  const [convoStartTime, setConvoStartTime] = useState<number | null>(null);
+  const [convoTotalErrors, setConvoTotalErrors] = useState(0);
+  const [convoTotalChars, setConvoTotalChars] = useState(0);
+  const [convoTypedText, setConvoTypedText] = useState("");
+  const [convoErrorChar, setConvoErrorChar] = useState<string | null>(null);
+  const [convoCompletedExchanges, setConvoCompletedExchanges] = useState<ConversationExchange[]>([]);
 
   const translationRef = useRef<HTMLInputElement>(null);
   const usageRef = useRef<HTMLInputElement>(null);
@@ -537,8 +560,8 @@ export default function App() {
     practiceTypeRef.current = practiceType;
     freeModeActiveRef.current = freeModeActive;
 
-    // If we leave the practice screen, stop speaking immediately
-    if (currentScreen !== "practice") {
+    // If we leave the practice/conversation screen, stop speaking immediately
+    if (currentScreen !== "practice" && currentScreen !== "conversation") {
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -575,6 +598,9 @@ export default function App() {
   const [isDictationConfigOpen, setIsDictationConfigOpen] = useState(false);
   const [dictationHintActive, setDictationHintActive] = useState(false);
   const [dictationHintText, setDictationHintText] = useState("");
+  const [dictationCustomInput, setDictationCustomInput] = useState("");
+  const [dictationScope2, setDictationScope2] = useState<"auto" | "custom">("auto");
+  const [dictationRevealedGlossary, setDictationRevealedGlossary] = useState<string[]>([]);
   
   // Settings Import/Export Log
   const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
@@ -610,8 +636,10 @@ export default function App() {
   const [drillStartTime, setDrillStartTime] = useState<number | null>(null);
   const [drillErrorsByChar, setDrillErrorsByChar] = useState<Record<string, number>>({});
   const [drillShowHandsHint, setDrillShowHandsHint] = useState<boolean>(true);
-  const [drillFlashKey, setDrillFlashKey] = useState<string | null>(null);
-  const [drillFlashStatus, setDrillFlashStatus] = useState<"success" | "error" | null>(null);
+  const [drillFlash, setDrillFlash] = useState<{ key: string; status: "success" | "error" } | null>(null);
+  const drillFlashKey = drillFlash?.key ?? null;
+  const drillFlashStatus = drillFlash?.status ?? null;
+  const drillFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [drillIsFinished, setDrillIsFinished] = useState<boolean>(false);
   const [stageFlashMessage, setStageFlashMessage] = useState<string | null>(null);
   const [drillTargetFlash, setDrillTargetFlash] = useState<boolean>(false);
@@ -620,6 +648,14 @@ export default function App() {
   // Custom drill states
   const [customDrillInput, setCustomDrillInput] = useState("");
   const [customDrillOpen, setCustomDrillOpen] = useState<"wordsShort" | "wordsLong" | "phrases" | "flow" | null>(null);
+  const [customDrillGlossary, setCustomDrillGlossary] = useState<GlossaryEntry[]>([]);
+
+  // Claude direct-write drill data
+  const [drillsData, setDrillsData] = useState<DrillsData>({});
+  const [selectedDrillSession, setSelectedDrillSession] = useState<string | null>(null);
+  const selectedDrillSessionRef = useRef<string | null>(null);
+  const drillsDataRef = useRef<DrillsData>({});
+  const [sessionPickerOpen, setSessionPickerOpen] = useState<"wordsShort" | "wordsLong" | "phrases" | "dictation" | null>(null);
 
   const showStageFlash = (msg: string) => {
     setStageFlashMessage(msg);
@@ -645,6 +681,24 @@ export default function App() {
         setSessions(loadedSessions.sort((a, b) => b.date - a.date));
         setSettings(loadedSettings);
         setPastLessons(loadedLessons.sort((a, b) => b.date - a.date));
+
+        // Sync from Claude's direct-write JSON files
+        try {
+          await syncFromServer();
+          // Re-load after sync to pick up any new content
+          const refreshedStories = await getStories();
+          const refreshedLessons = await getLessons();
+          setStories(refreshedStories.sort((a, b) => b.createdAt - a.createdAt));
+          setPastLessons(refreshedLessons.sort((a, b) => b.date - a.date));
+
+          const drills = await fetchDrills();
+          setDrillsData(drills);
+
+          const convos = await fetchConversations();
+          setConversations(convos);
+        } catch (err) {
+          console.warn("Server sync skipped:", err);
+        }
 
         // Sync dark/light theme to document element
         applyTheme(loadedSettings.theme);
@@ -913,6 +967,10 @@ export default function App() {
             freeModeActiveRef.current
           );
         }
+        // Conversation mode — always allow TTS to finish
+        if (currentScreenRef.current === "conversation") {
+          return true;
+        }
         return (
           currentScreenRef.current === "practice" &&
           selectedStoryRef.current &&
@@ -921,7 +979,7 @@ export default function App() {
         );
       };
 
-      // Periodic Chrome Keep-Alive timer to avoid cut-off during long audio loops (every 10 seconds)
+      // Periodic Chrome Keep-Alive timer to avoid cut-off (every 14 seconds, minimal pause)
       const keepAlive = setInterval(() => {
         if (!shouldContinue()) {
           clearInterval(keepAlive);
@@ -929,11 +987,9 @@ export default function App() {
         }
         if (window.speechSynthesis.speaking) {
           window.speechSynthesis.pause();
-          setTimeout(() => {
-            if (shouldContinue()) window.speechSynthesis.resume();
-          }, 50);
+          window.speechSynthesis.resume();
         }
-      }, 10000);
+      }, 14000);
 
       const playChunks = (index: number) => {
         if (!shouldContinue()) {
@@ -943,15 +999,9 @@ export default function App() {
         }
 
         if (index >= chunks.length) {
-          // All sentence chunks read back. Take a brief pause (1.2 seconds) and replay for continuous immersion
+          // All chunks played — stop cleanly, no auto-loop
+          clearInterval(keepAlive);
           setIsSpeaking(false);
-          setTimeout(() => {
-            if (shouldContinue()) {
-              playChunks(0);
-            } else {
-              clearInterval(keepAlive);
-            }
-          }, 1200);
           return;
         }
 
@@ -979,7 +1029,7 @@ export default function App() {
 
         const handleEnded = () => {
           if (shouldContinue()) {
-            playChunks(index + 1);
+            setTimeout(() => playChunks(index + 1), 120);
           } else {
             clearInterval(keepAlive);
             setIsSpeaking(false);
@@ -1116,36 +1166,34 @@ export default function App() {
     return items;
   };
 
-  const generateWordsShort = (round: number): string[] => {
-    const items: string[] = [];
-    const wordCount = Math.min(1 + Math.floor((round - 1) / 2), 4);
-    for (let i = 0; i < 12; i++) {
-      const parts: string[] = [];
-      for (let j = 0; j < wordCount; j++) {
-        parts.push(FR_SHORT[Math.floor(Math.random() * FR_SHORT.length)]);
-      }
-      items.push(parts.join(" "));
-    }
-    return items;
+  const generateWordsShort = (_round: number): string[] => {
+    const key = selectedDrillSessionRef.current;
+    const data = drillsDataRef.current;
+    if (!key || !data[key]) return [];
+    const pool = data[key].words_short || [];
+    if (pool.length === 0) return [];
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(12, shuffled.length));
   };
 
-  const generateWordsLong = (round: number): string[] => {
-    const items: string[] = [];
-    const mixProb = Math.min(0.15 * (round - 1), 0.75);
-    for (let i = 0; i < 12; i++) {
-      const useLong = Math.random() < mixProb;
-      const pool = useLong ? FR_LONG : FR_MEDIUM;
-      items.push(pool[Math.floor(Math.random() * pool.length)]);
-    }
-    return items;
+  const generateWordsLong = (_round: number): string[] => {
+    const key = selectedDrillSessionRef.current;
+    const data = drillsDataRef.current;
+    if (!key || !data[key]) return [];
+    const pool = data[key].words_long || [];
+    if (pool.length === 0) return [];
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(12, shuffled.length));
   };
 
-  const generatePhrases = (round: number): string[] => {
-    const items: string[] = [];
-    for (let i = 0; i < 12; i++) {
-      items.push(generateSentence(round));
-    }
-    return items;
+  const generatePhrases = (_round: number): string[] => {
+    const key = selectedDrillSessionRef.current;
+    const data = drillsDataRef.current;
+    if (!key || !data[key]) return [];
+    const pool = data[key].phrases || [];
+    if (pool.length === 0) return [];
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(12, shuffled.length));
   };
 
   const speakDrillTargetText = (text: string) => {
@@ -1165,6 +1213,35 @@ export default function App() {
       utterance.volume = 1.0;
       if (preferred) utterance.voice = preferred;
       window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Keep refs in sync
+  useEffect(() => { selectedDrillSessionRef.current = selectedDrillSession; }, [selectedDrillSession]);
+  useEffect(() => { drillsDataRef.current = drillsData; }, [drillsData]);
+
+  // Helper: get drill sessions that have content for a given drill type
+  const getDrillSessionsForType = (type: "wordsShort" | "wordsLong" | "phrases" | "dictation"): string[] => {
+    const fieldMap: Record<string, string> = { wordsShort: "words_short", wordsLong: "words_long", phrases: "phrases", dictation: "dictee" };
+    const field = fieldMap[type];
+    return Object.keys(drillsData).filter(key => {
+      const session = drillsData[key] as any;
+      return session[field] && session[field].length > 0;
+    });
+  };
+
+  // Open session picker for content-based drills
+  const openDrillWithPicker = (type: "wordsShort" | "wordsLong" | "phrases" | "dictation") => {
+    const available = getDrillSessionsForType(type);
+    if (available.length === 0) {
+      setSessionPickerOpen(type); // will show empty state
+    } else if (available.length === 1) {
+      // Only one session — skip picker, start directly
+      setSelectedDrillSession(available[0]);
+      selectedDrillSessionRef.current = available[0];
+      startDrillSession(type);
+    } else {
+      setSessionPickerOpen(type);
     }
   };
 
@@ -1191,10 +1268,15 @@ export default function App() {
     } else if (type === "phrases") {
       items = generatePhrases(roundNum);
     } else if (type === "dictation") {
-      if (dictationScope === "words") {
+      const _dKey = selectedDrillSessionRef.current;
+      const _dData = drillsDataRef.current;
+      if (_dKey && _dData[_dKey]?.dictee?.length) {
+        const pool = _dData[_dKey].dictee!;
+        items = [...pool].sort(() => Math.random() - 0.5).slice(0, Math.min(12, pool.length));
+      } else if (dictationScope === "words") {
         items = generateWordsShort(roundNum);
       } else {
-        items = generateFlowStage(roundNum, 1);
+        items = generatePhrases(roundNum);
       }
     } else if (type === "lesson") {
       const lessonToUse = customLessonToPlay || activeLesson;
@@ -1222,8 +1304,7 @@ export default function App() {
     setDrillTotalErrors(0);
     setDrillStartTime(Date.now());
     setDrillErrorsByChar({});
-    setDrillFlashKey(null);
-    setDrillFlashStatus(null);
+    setDrillFlash(null);
     setDrillIsFinished(false);
     setCompletedDrillDetails(null);
     
@@ -1238,20 +1319,69 @@ export default function App() {
 
   const handleStartCustomDrill = () => {
     if (!customDrillOpen || !customDrillInput.trim()) return;
-    
-    const items = customDrillInput
-      .split("\n")
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-    
+
+    const raw = customDrillInput.trim();
+    let items: string[] = [];
+    let glossary: GlossaryEntry[] = [];
+
+    // Check if input uses structured format with #GLOSSARY / #WORDS
+    const hasGlossary = raw.includes("#GLOSSARY");
+    const hasWords = raw.includes("#WORDS");
+
+    if (hasGlossary || hasWords) {
+      // Parse sections
+      const sections: { [key: string]: string } = {};
+      const sectionMarkers = ["#GLOSSARY", "#WORDS", "#SENTENCES", "#PARAGRAPH", "#TRANSLATION"];
+      const found: { label: string; index: number }[] = [];
+      for (const marker of sectionMarkers) {
+        const idx = raw.indexOf(marker);
+        if (idx !== -1) found.push({ label: marker, index: idx });
+      }
+      found.sort((a, b) => a.index - b.index);
+      for (let i = 0; i < found.length; i++) {
+        const start = found[i].index + found[i].label.length;
+        const end = (i + 1 < found.length) ? found[i + 1].index : raw.length;
+        sections[found[i].label] = raw.substring(start, end).trim();
+      }
+
+      if (sections["#GLOSSARY"]) {
+        glossary = parseGlossaryStr(sections["#GLOSSARY"]);
+      }
+
+      if (sections["#WORDS"]) {
+        items = sections["#WORDS"]
+          .split(",")
+          .map(w => w.trim())
+          .filter(w => w.length > 0);
+      } else if (sections["#SENTENCES"]) {
+        items = sections["#SENTENCES"]
+          .split("\n")
+          .map(l => l.trim())
+          .filter(l => l.length > 0);
+      }
+
+      // If #WORDS wasn't present, extract words from glossary entries
+      if (items.length === 0 && glossary.length > 0) {
+        items = glossary.map(g => g.french);
+      }
+    } else {
+      // Plain line-by-line input (legacy behavior)
+      items = raw
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    }
+
     if (items.length === 0) return;
 
+    const drillType = customDrillOpen;
     setCustomDrillOpen(null);
     setCustomDrillInput("");
+    setCustomDrillGlossary(glossary);
 
     // Start the drill session normally but override the items immediately after
-    startDrillSession(customDrillOpen);
-    
+    startDrillSession(drillType);
+
     // Override drillItems with custom content after startDrillSession sets state
     setTimeout(() => {
       setDrillItems(items);
@@ -1384,6 +1514,144 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, [currentScreen, typedText, cursorLastMovedTime, currentSentence]);
 
+  // Conversation Mode: advance to next exchange (handles NPC lines automatically)
+  // Refs for conversation state to avoid stale closures in setTimeout chains
+  const activeConvoRef = useRef(activeConversation);
+  const convoRoleRef = useRef(convoRole);
+  const convoAutoTtsRef = useRef(convoAutoTts);
+  useEffect(() => { activeConvoRef.current = activeConversation; }, [activeConversation]);
+  useEffect(() => { convoRoleRef.current = convoRole; }, [convoRole]);
+  useEffect(() => { convoAutoTtsRef.current = convoAutoTts; }, [convoAutoTts]);
+
+  const advanceConvoExchange = (nextIdx: number, skipUserAudio?: boolean) => {
+    const convo = activeConvoRef.current;
+    if (!convo) return;
+    const exchanges = convo.exchanges;
+    const role = convoRoleRef.current;
+
+    if (nextIdx >= exchanges.length) {
+      // All exchanges done — wait for user to press "End conversation"
+      setConvoAllDone(true);
+      return;
+    }
+
+    const nextExchange = exchanges[nextIdx];
+    setConvoExchangeIndex(nextIdx);
+    setConvoTypedText("");
+    setConvoErrorChar(null);
+    if (inputRef.current) inputRef.current.value = "";
+
+    // If it's an NPC line (not the user's role), auto-display and play TTS
+    if (nextExchange.speaker !== role) {
+      setConvoCompletedExchanges(prev => [...prev, nextExchange]);
+      if (convoAutoTtsRef.current) {
+        playSentenceAudio(nextExchange.french);
+      }
+      // Auto-advance past NPC line after a delay
+      setTimeout(() => {
+        const c = activeConvoRef.current;
+        if (!c) return;
+        if (nextIdx + 1 >= c.exchanges.length) {
+          setConvoAllDone(true);
+        } else {
+          advanceConvoExchange(nextIdx + 1);
+        }
+      }, 1200);
+    } else {
+      // User's turn — focus input
+      setTimeout(() => focusInputZone(), 100);
+    }
+  };
+
+  // Conversation Mode: process a typed character
+  const processConvoChar = (typedChar: string) => {
+    if (!activeConversation || convoCompleted || convoAllDone) return;
+
+    const exchanges = activeConversation.exchanges;
+    const currentExchange = exchanges[convoExchangeIndex];
+    if (!currentExchange) return;
+
+    // Start timer on first keypress
+    if (convoStartTime === null) {
+      setConvoStartTime(Date.now());
+    }
+
+    const targetText = currentExchange.french;
+    const expectedChar = (targetText[convoTypedText.length] || "").normalize('NFC');
+
+    if (typedChar === expectedChar) {
+      if (settings.soundEffects) playSuccessSound();
+      setConvoTotalChars(prev => prev + 1);
+      setConvoErrorChar(null);
+
+      const newText = convoTypedText + expectedChar;
+      setConvoTypedText(newText);
+
+      // Completed this exchange line
+      if (newText === targetText) {
+        setConvoCompletedExchanges(prev => [...prev, currentExchange]);
+        // Play the user's completed line audio first, then advance
+        if (convoAutoTtsRef.current) {
+          playSentenceAudio(currentExchange.french);
+          // Delay advance so user's audio plays before NPC's next line
+          setTimeout(() => advanceConvoExchange(convoExchangeIndex + 1), 1500);
+        } else {
+          advanceConvoExchange(convoExchangeIndex + 1);
+        }
+      }
+    } else {
+      if (settings.soundEffects) playErrorSound();
+      setConvoTotalErrors(prev => prev + 1);
+      setConvoTotalChars(prev => prev + 1);
+
+      if (errorMode === "strict") {
+        setConvoTypedText("");
+        if (inputRef.current) inputRef.current.value = "";
+        setSentenceErrorFlash(true);
+        setTimeout(() => setSentenceErrorFlash(false), 200);
+      } else {
+        setDouxErrorActive(true);
+        if (douxTimeoutRef.current) clearTimeout(douxTimeoutRef.current);
+        douxTimeoutRef.current = setTimeout(() => {
+          setDouxErrorActive(false);
+        }, 200);
+      }
+    }
+  };
+
+  // Start a conversation session
+  const startConversation = (convo: ConversationData, role: "a" | "b", hintMode: "echo" | "guide" | "libre") => {
+    setActiveConversation(convo);
+    setConvoRole(role);
+    setConvoHintMode(hintMode);
+    setConvoExchangeIndex(0);
+    setConvoTypedText("");
+    setConvoErrorChar(null);
+    setConvoCompleted(false);
+    setConvoAllDone(false);
+    setConvoStartTime(null);
+    setConvoTotalErrors(0);
+    setConvoTotalChars(0);
+    setConvoCompletedExchanges([]);
+
+    // Process initial NPC exchanges before user's first turn
+    const exchanges = convo.exchanges;
+    let startIdx = 0;
+    const initialNpcExchanges: ConversationExchange[] = [];
+    while (startIdx < exchanges.length && exchanges[startIdx].speaker !== role) {
+      initialNpcExchanges.push(exchanges[startIdx]);
+      startIdx++;
+    }
+    setConvoCompletedExchanges(initialNpcExchanges);
+    setConvoExchangeIndex(startIdx);
+
+    if (initialNpcExchanges.length > 0 && convoAutoTts) {
+      playSentenceAudio(initialNpcExchanges[initialNpcExchanges.length - 1].french);
+    }
+
+    setTimeout(() => focusInputZone(), 200);
+  };
+
   // Main typing keyboard stroke listener
   const processTypedChar = (typedCharRaw: string) => {
     setDouxErrorActive(false);
@@ -1393,6 +1661,12 @@ export default function App() {
     }
 
     const typedChar = typedCharRaw.normalize('NFC');
+
+    // Conversation mode — delegate to separate handler
+    if (practiceType === "conversation") {
+      processConvoChar(typedChar);
+      return;
+    }
 
     if (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") {
       if (drillIsFinished) return;
@@ -1409,16 +1683,25 @@ export default function App() {
         setTypedText(newTyped);
         setDrillTotalTyped(prev => prev + 1);
         
-        setDrillFlashKey(getKeyMainForChar(typedChar));
-        setDrillFlashStatus("success");
-        setTimeout(() => {
-          setDrillFlashKey(null);
-          setDrillFlashStatus(null);
-        }, 150);
+        if (drillFlashTimer.current) clearTimeout(drillFlashTimer.current);
+        setDrillFlash({ key: getKeyMainForChar(typedChar), status: "success" });
+        drillFlashTimer.current = setTimeout(() => setDrillFlash(null), 150);
 
         if (newTyped === targetWord) {
           setDrillTargetFlash(true);
           setTimeout(() => setDrillTargetFlash(false), 200);
+
+          // Reveal glossary entry for completed word in dictation mode
+          if (practiceType === "dictation" && customDrillGlossary.length > 0) {
+            const completedWord = targetWord.toLowerCase().replace(/[.!?,;:]/g, "").trim();
+            const matchingEntry = customDrillGlossary.find(g => {
+              const gWords = g.french.toLowerCase().split(/\s+/);
+              return gWords.some(w => completedWord.includes(w)) || completedWord.includes(g.french.toLowerCase());
+            });
+            if (matchingEntry) {
+              setDictationRevealedGlossary(prev => [...prev, matchingEntry.french]);
+            }
+          }
 
           const nextIdx = drillItemIndex + 1;
           setTypedText("");
@@ -1498,34 +1781,28 @@ export default function App() {
                 speakDrillTargetText(s1[0]);
               }
             } else if (practiceType === "dictation") {
-              if (dictationScope === "words") {
-                if (drillStage === 1) {
-                  setDrillStage(2);
-                  const s2 = [];
-                  for (let i = 0; i < 12; i++) {
-                    s2.push(FR_MEDIUM[Math.floor(Math.random() * FR_MEDIUM.length)]);
-                  }
-                  setDrillItems(s2);
-                  setDrillItemIndex(0);
-                  showStageFlash("Mots moyens !");
-                  speakDrillTargetText(s2[0]);
-                } else if (drillStage === 2) {
-                  setDrillStage(3);
-                  const s3 = generateWordsLong(drillRound);
-                  setDrillItems(s3);
-                  setDrillItemIndex(0);
-                  showStageFlash("Mots longs !");
-                  speakDrillTargetText(s3[0]);
-                } else {
-                  const nextRound = drillRound + 1;
-                  setDrillRound(nextRound);
-                  setDrillStage(1);
-                  const s1 = generateWordsShort(nextRound);
-                  setDrillItems(s1);
-                  setDrillItemIndex(0);
-                  showStageFlash(`Ronde ${nextRound} - Mots courts !`);
-                  speakDrillTargetText(s1[0]);
-                }
+              const __dKey = selectedDrillSessionRef.current;
+              const __dData = drillsDataRef.current;
+              if (__dKey && __dData[__dKey]?.dictee?.length) {
+                // Re-shuffle dictée pool for next round
+                const nextRound = drillRound + 1;
+                setDrillRound(nextRound);
+                const pool = __dData[__dKey].dictee!;
+                const reshuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, Math.min(12, pool.length));
+                setDrillItems(reshuffled);
+                setDrillItemIndex(0);
+                showStageFlash(`Ronde ${nextRound} !`);
+                speakDrillTargetText(reshuffled[0]);
+              } else if (dictationScope === "words") {
+                // Fallback when no drill session selected
+                const nextRound = drillRound + 1;
+                setDrillRound(nextRound);
+                setDrillStage(1);
+                const s1 = generateWordsShort(nextRound);
+                setDrillItems(s1);
+                setDrillItemIndex(0);
+                showStageFlash(`Ronde ${nextRound} !`);
+                if (s1[0]) speakDrillTargetText(s1[0]);
               } else { // progressive
                 if (drillStage === 1) {
                   setDrillStage(2);
@@ -1571,10 +1848,15 @@ export default function App() {
               } else {
                 s1 = generatePhrases(nextRound);
               }
-              setDrillItems(s1);
-              setDrillItemIndex(0);
-              showStageFlash(`Ronde ${nextRound} !`);
-              speakDrillTargetText(s1[0]);
+              if (s1.length === 0) {
+                // No more drill content — finish
+                setDrillIsFinished(true);
+              } else {
+                setDrillItems(s1);
+                setDrillItemIndex(0);
+                showStageFlash(`Ronde ${nextRound} !`);
+                speakDrillTargetText(s1[0]);
+              }
             } else {
               if (drillStage === 1) {
                 setDrillStage(2);
@@ -1645,12 +1927,9 @@ export default function App() {
           }));
         }
 
-        setDrillFlashKey(getKeyMainForChar(typedChar));
-        setDrillFlashStatus("error");
-        setTimeout(() => {
-          setDrillFlashKey(null);
-          setDrillFlashStatus(null);
-        }, 150);
+        if (drillFlashTimer.current) clearTimeout(drillFlashTimer.current);
+        setDrillFlash({ key: getKeyMainForChar(typedChar), status: "error" });
+        drillFlashTimer.current = setTimeout(() => setDrillFlash(null), 150);
 
         if (errorMode === "strict") {
           setTypedText("");
@@ -1698,11 +1977,34 @@ export default function App() {
       if (sessionStartTime === null) {
         setSessionStartTime(Date.now());
       }
-      // Detect if first character of active text
+
+      // Sentence-by-sentence audio: determine which sentence the cursor is in
+      const getCurrentSentenceText = (pos: number): string => {
+        if (freeModeSentenceBounds.length === 0) return freeModeText;
+        let start = 0;
+        for (let i = 0; i < freeModeSentenceBounds.length; i++) {
+          const end = freeModeSentenceBounds[i];
+          if (pos < end) {
+            return freeModeText.slice(start, end).trim();
+          }
+          start = end;
+        }
+        // Last segment after final sentence boundary
+        return freeModeText.slice(start).trim();
+      };
+
+      const getSentenceIndexForPos = (pos: number): number => {
+        for (let i = 0; i < freeModeSentenceBounds.length; i++) {
+          if (pos < freeModeSentenceBounds[i]) return i;
+        }
+        return freeModeSentenceBounds.length;
+      };
+
+      // Detect if first character of active text — play first sentence
       if (sentenceStartTime === null) {
         setSentenceStartTime(Date.now());
-        // Trigger voice read aloud the moment typing begins for free text
-        playSentenceAudio(freeModeText);
+        const firstSentence = getCurrentSentenceText(0);
+        speakDrillTargetText(firstSentence);
       }
 
       setCursorLastMovedTime(Date.now());
@@ -1712,12 +2014,23 @@ export default function App() {
       if (typedChar === expectedChar) {
         if (settings.soundEffects) playSuccessSound();
         setSessionTotalCharsTyped(prev => prev + 1);
-        
+
         const newText = typedText + expectedChar;
         setTypedText(newText);
         setCurrentStoryErrorChar(null);
 
+        // Check if we just crossed into a new sentence — auto-play its audio
+        const prevSentenceIdx = getSentenceIndexForPos(typedText.length);
+        const newSentenceIdx = getSentenceIndexForPos(newText.length);
+        if (newSentenceIdx > prevSentenceIdx && newText.length < freeModeText.length) {
+          if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+          const nextSentence = getCurrentSentenceText(newText.length);
+          if (nextSentence) speakDrillTargetText(nextSentence);
+          setFreeModeCurrentSentenceIdx(newSentenceIdx);
+        }
+
         if (newText === freeModeText) {
+          if ("speechSynthesis" in window) window.speechSynthesis.cancel();
           handleCompleteFreeMode();
         }
       } else {
@@ -2019,6 +2332,16 @@ export default function App() {
     setCurrentScreen("practice");
 
     if (recommence) {
+      // Recompute sentence boundaries
+      const bounds: number[] = [];
+      const sentenceEndRegex = /[.!?]/g;
+      let m: RegExpExecArray | null;
+      while ((m = sentenceEndRegex.exec(freeModeText)) !== null) {
+        if (m.index + 1 < freeModeText.length && /[.!?]/.test(freeModeText[m.index + 1])) continue;
+        bounds.push(m.index + 1);
+      }
+      setFreeModeSentenceBounds(bounds);
+      setFreeModeCurrentSentenceIdx(0);
       setFreeModeActive(true);
     } else {
       setFreeModeText("");
@@ -2119,7 +2442,15 @@ export default function App() {
       }
       if (sentenceStartTime === null) {
         setSentenceStartTime(Date.now());
-        playSentenceAudio(freeModeText);
+        // Play only the current sentence
+        const pos = typedText.length;
+        let start = 0;
+        let end = freeModeText.length;
+        for (let i = 0; i < freeModeSentenceBounds.length; i++) {
+          if (pos < freeModeSentenceBounds[i]) { end = freeModeSentenceBounds[i]; break; }
+          start = freeModeSentenceBounds[i];
+        }
+        speakDrillTargetText(freeModeText.slice(start, end).trim() || freeModeText);
       }
       setCursorLastMovedTime(Date.now());
     }
@@ -2433,7 +2764,7 @@ export default function App() {
           
 
           {/* Navigation tabs between Bibliothèque and Apprendre */}
-          {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free") || currentScreen === "carnet") && (
+          {(currentScreen === "library" || currentScreen === "learn" || currentScreen === "lesson-setup" || (currentScreen === "practice" && practiceType === "free") || currentScreen === "carnet" || currentScreen === "conversation") && (
             <div className="flex items-baseline gap-4 ml-6 border-l border-white/10 pl-6 h-full pb-0.5">
               <button
                 onClick={() => {
@@ -2459,6 +2790,25 @@ export default function App() {
                 }`}
               >
                 Mode Libre
+              </button>
+              <button
+                onClick={() => {
+                  if ("speechSynthesis" in window) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setActiveConversation(null);
+                  setConvoCompleted(false);
+                  setCurrentScreen("conversation");
+                  setPracticeType("conversation");
+                }}
+                className={`px-1 pb-1 text-xs font-semibold border-b-2 bg-transparent rounded-none border-t-0 border-l-0 border-r-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  currentScreen === "conversation"
+                    ? "border-[#7B1E2B] text-white"
+                    : "border-transparent text-zinc-400 hover:text-white"
+                }`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Dialogue</span>
               </button>
               <button
                 onClick={() => {
@@ -2568,6 +2918,382 @@ export default function App() {
           ----------------------------------------------------------------------- */}
       <main className="flex-1 flex flex-col justify-start relative px-4 sm:px-8 py-6 max-w-7xl mx-auto w-full z-10">
         
+        {/* VIEW: CONVERSATION MODE */}
+        {currentScreen === "conversation" && (
+          <div className="w-full animate-fade-in flex flex-col gap-6">
+            {!activeConversation ? (
+              /* ---- Conversation Picker ---- */
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                  <MessageCircle className="w-5 h-5 text-burgundy" />
+                  <h2 className="text-xl font-serif italic text-white">Dialogues</h2>
+                  <span className="text-xs text-zinc-500 font-sans ml-2">Pratique de conversation guidée</span>
+                </div>
+
+                {Object.keys(conversations).length === 0 ? (
+                  <div className="text-center py-16 text-zinc-500 font-sans text-sm">
+                    Aucun dialogue disponible pour le moment.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {Object.entries(conversations).map(([key, convo]: [string, ConversationData]) => (
+                      <div
+                        key={key}
+                        className="group flex flex-col justify-between bg-white/[0.015] border border-white/5 rounded-2xl p-6 transition-all duration-300 relative overflow-hidden hover:bg-white/[0.035] hover:shadow-[inset_0_0_12px_rgba(255,255,255,0.02)] cursor-pointer"
+                        onClick={() => startConversation(convo, "a", convoHintMode)}
+                      >
+                        <div className="absolute inset-1.5 border border-dashed border-white/10 group-hover:border-solid rounded-xl pointer-events-none transition-all duration-300" />
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-3">
+                            <MessageCircle className="w-4 h-4 text-burgundy" />
+                            <h3 className="text-base font-serif italic text-white">{convo.title}</h3>
+                          </div>
+                          <p className="text-xs text-zinc-400 font-sans mb-3 leading-relaxed">{convo.scenarioEn}</p>
+                          <p className="text-xs text-zinc-500 font-sans italic mb-4">{convo.scenario}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase border ${
+                              convo.level === "beginner" ? "bg-burgundy-soft text-burgundy border-burgundy-border" :
+                              convo.level === "intermediate" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                              "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                            }`}>
+                              {convo.level === "beginner" ? "Débutant" : convo.level === "intermediate" ? "Intermédiaire" : convo.level}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 font-sans">{convo.exchanges.length} échanges</span>
+                            <span className="text-[10px] text-zinc-500 font-sans">
+                              {convo.roles.a.labelEn} / {convo.roles.b.labelEn}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Hint Mode Selector */}
+                {Object.keys(conversations).length > 0 && (
+                  <div className="flex items-center gap-3 justify-center mt-2">
+                    <span className="text-xs text-zinc-500 font-sans">Mode :</span>
+                    <div className="flex rounded-lg border border-white/10 overflow-hidden">
+                      {(["echo", "guide", "libre"] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => setConvoHintMode(mode)}
+                          className={`px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer border-none ${
+                            convoHintMode === mode
+                              ? "bg-[#7B1E2B] text-white"
+                              : "bg-transparent text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          {mode === "echo" ? "Écho" : mode === "guide" ? "Guidé" : "Libre"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : convoCompleted ? (
+              /* ---- Completion Screen ---- */
+              <div className="flex flex-col items-center gap-6 py-12 animate-fade-in">
+                <div className="w-16 h-16 rounded-full bg-burgundy-soft flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8 text-burgundy" />
+                </div>
+                <h2 className="text-2xl font-serif italic text-white">Dialogue terminé !</h2>
+                <p className="text-sm text-zinc-400 font-sans">{activeConversation.title}</p>
+
+                <div className="flex items-center gap-8 mt-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-white font-sans">
+                      {convoTotalChars > 0 ? Math.round(((convoTotalChars - convoTotalErrors) / convoTotalChars) * 100) : 100}%
+                    </div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">Précision</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-white font-sans">
+                      {convoStartTime ? Math.round((Date.now() - convoStartTime) / 1000) : 0}s
+                    </div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">Durée</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-white font-sans">{convoTotalErrors}</div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">Erreurs</div>
+                  </div>
+                </div>
+
+                <Fleuron className="my-4" />
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {convoHintMode === "echo" && (
+                    <button
+                      onClick={() => startConversation(activeConversation, convoRole, "guide")}
+                      className="px-4 py-2 bg-[#7B1E2B] hover:bg-[#962637] text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                    >
+                      Essayer en Guidé →
+                    </button>
+                  )}
+                  {convoHintMode === "guide" && (
+                    <button
+                      onClick={() => startConversation(activeConversation, convoRole, "libre")}
+                      className="px-4 py-2 bg-[#7B1E2B] hover:bg-[#962637] text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                    >
+                      Essayer en Libre →
+                    </button>
+                  )}
+                  <button
+                    onClick={() => startConversation(activeConversation, convoRole === "a" ? "b" : "a", convoHintMode)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer border border-white/10"
+                  >
+                    Changer de rôle ({convoRole === "a" ? activeConversation.roles.b.labelEn : activeConversation.roles.a.labelEn})
+                  </button>
+                  <button
+                    onClick={() => startConversation(activeConversation, convoRole, convoHintMode)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer border border-white/10"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 inline mr-1.5" />
+                    Recommencer
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveConversation(null);
+                      setConvoCompleted(false);
+                    }}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer border border-white/10"
+                  >
+                    ← Tous les dialogues
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ---- Active Conversation Practice ---- */
+              <div className="flex flex-col gap-4">
+                {/* Header bar */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-3 flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+                        setActiveConversation(null);
+                        setConvoCompleted(false);
+                      }}
+                      className="text-xs text-zinc-400 hover:text-white transition-all cursor-pointer bg-transparent border-none"
+                    >
+                      ← Retour
+                    </button>
+                    <h2 className="text-lg font-serif italic text-white">{activeConversation.title}</h2>
+                    <span className="text-[10px] text-zinc-500 font-sans">
+                      Vous êtes : <strong className="text-zinc-300">{activeConversation.roles[convoRole].labelEn}</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {/* Hint mode pills */}
+                    <div className="flex rounded-lg border border-white/10 overflow-hidden">
+                      {(["echo", "guide", "libre"] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => setConvoHintMode(mode)}
+                          className={`px-2.5 py-1 text-[10px] font-semibold transition-all cursor-pointer border-none ${
+                            convoHintMode === mode
+                              ? "bg-[#7B1E2B] text-white"
+                              : "bg-transparent text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          {mode === "echo" ? "Écho" : mode === "guide" ? "Guidé" : "Libre"}
+                        </button>
+                      ))}
+                    </div>
+                    {/* TTS toggle */}
+                    <button
+                      onClick={() => setConvoAutoTts(prev => !prev)}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer border ${
+                        convoAutoTts
+                          ? "bg-burgundy-soft border-burgundy-border text-burgundy"
+                          : "bg-white/5 border-white/10 text-zinc-500"
+                      }`}
+                      title={convoAutoTts ? "Audio automatique activé" : "Audio automatique désactivé"}
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                    </button>
+                    {/* Error mode toggle */}
+                    <ErrorModeToggle errorMode={errorMode} onChange={handleToggleErrorMode} />
+                  </div>
+                </div>
+
+                {/* Chat bubble history */}
+                <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-2" style={{ scrollBehavior: "smooth" }}>
+                  {convoCompletedExchanges.map((exchange, i) => {
+                    const isUser = exchange.speaker === convoRole;
+                    return (
+                      <div key={i} className={`flex ${isUser ? "justify-end" : "justify-start"} animate-fade-in`}>
+                        <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                          isUser
+                            ? "bg-burgundy-soft border border-burgundy-border rounded-br-md"
+                            : "bg-white/[0.03] border border-white/5 rounded-bl-md"
+                        }`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 font-sans">
+                              {activeConversation.roles[exchange.speaker].label}
+                            </span>
+                            {!isUser && (
+                              <button
+                                onClick={() => playSentenceAudio(exchange.french)}
+                                className="text-zinc-500 hover:text-zinc-300 transition-all cursor-pointer bg-transparent border-none p-0"
+                              >
+                                <Volume2 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-sm text-white font-sans">{exchange.french}</p>
+                          <p className="text-[11px] text-zinc-500 font-sans mt-1 italic">{exchange.english}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Current typing area */}
+                {(() => {
+                  const currentExchange = activeConversation.exchanges[convoExchangeIndex];
+                  if (!currentExchange) return null;
+                  if (currentExchange.speaker !== convoRole) {
+                    // NPC is speaking — show a typing indicator
+                    return (
+                      <div className="flex justify-start mt-2 animate-fade-in">
+                        <div className="bg-white/[0.03] border border-white/5 rounded-2xl rounded-bl-md px-5 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const targetText = currentExchange.french;
+
+                  return (
+                    <div className="mt-2" onClick={focusInputZone}>
+                      {/* Hint display based on mode */}
+                      <div className="mb-3 p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-burgundy font-sans">
+                            Votre tour — {activeConversation.roles[convoRole].label}
+                          </span>
+                        </div>
+                        {convoHintMode === "echo" && (
+                          <p className="text-sm text-zinc-300 font-sans">{targetText}</p>
+                        )}
+                        {convoHintMode === "guide" && (
+                          <div>
+                            <p className="text-sm text-zinc-300 font-sans">{currentExchange.english}</p>
+                            {currentExchange.hint && (
+                              <p className="text-xs text-zinc-500 font-sans mt-1 italic">Indice : {currentExchange.hint}</p>
+                            )}
+                          </div>
+                        )}
+                        {convoHintMode === "libre" && (
+                          <p className="text-sm text-zinc-300 font-sans">{currentExchange.english}</p>
+                        )}
+                      </div>
+
+                      {/* Character-by-character typing display */}
+                      <div className={`p-4 rounded-xl border transition-all duration-150 cursor-text ${
+                        sentenceErrorFlash
+                          ? "bg-red-500/10 border-red-500/30"
+                          : douxErrorActive
+                            ? "bg-amber-500/10 border-amber-500/30"
+                            : "bg-white/[0.015] border-white/5"
+                      }`}>
+                        <div className="text-base font-sans leading-relaxed tracking-wide">
+                          {targetText.split("").map((char, idx) => {
+                            let className = "text-zinc-600";
+                            let displayChar = char;
+                            if (idx < convoTypedText.length) {
+                              className = "text-emerald-400";
+                            } else if (idx === convoTypedText.length) {
+                              className = "text-white underline decoration-burgundy decoration-2 underline-offset-4";
+                              if (convoHintMode === "libre") displayChar = char === " " ? " " : "·";
+                            } else {
+                              // Future characters — hide in Libre and Guidé modes
+                              if (convoHintMode === "libre") {
+                                displayChar = char === " " ? " " : "·";
+                                className = "text-zinc-800";
+                              } else if (convoHintMode === "guide") {
+                                displayChar = char === " " ? " " : "·";
+                                className = "text-zinc-700";
+                              }
+                            }
+                            return (
+                              <span key={idx} className={className}>
+                                {displayChar}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {/* Progress indicator */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-0.5 bg-white/5 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-burgundy rounded-full transition-all duration-150"
+                              style={{ width: `${targetText.length > 0 ? (convoTypedText.length / targetText.length) * 100 : 0}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-zinc-600 font-sans">
+                            {convoTypedText.length}/{targetText.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Hidden textarea for input capture */}
+                      <textarea
+                        ref={inputRef}
+                        className="absolute opacity-0 w-0 h-0 pointer-events-auto"
+                        autoFocus
+                        onInput={handleNativeInput}
+                        onBlur={() => setTimeout(() => focusInputZone(), 50)}
+                      />
+
+                      {/* Accent bar */}
+                      {renderCollapsibleAccentBar()}
+                    </div>
+                  );
+                })()}
+
+                {/* End conversation button — appears after all exchanges are done */}
+                {convoAllDone && (
+                  <div className="flex justify-center mt-6 animate-fade-in">
+                    <button
+                      onClick={() => setConvoCompleted(true)}
+                      className="px-6 py-2.5 bg-[#7B1E2B] hover:bg-[#962637] text-white text-sm font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer shadow-lg flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Terminer le dialogue
+                    </button>
+                  </div>
+                )}
+
+                {/* Glossary */}
+                {activeConversation.glossary && activeConversation.glossary.length > 0 && (
+                  <div className="mt-4 p-4 rounded-xl bg-white/[0.015] border border-white/5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <BookOpen className="w-3.5 h-3.5 text-zinc-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 font-sans">Glossaire</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {activeConversation.glossary.map((g, i) => (
+                        <div key={i} className="text-xs font-sans">
+                          <span className="text-zinc-300">{g.french}</span>
+                          <span className="text-zinc-600 mx-1">—</span>
+                          <span className="text-zinc-500 italic">{g.english}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* VIEW 1: PRE-SEEDED STORIES LIBRARY LIST & ACTIVITY STATS */}
         {currentScreen === "library" && (
           <div className="w-full animate-fade-in flex flex-col gap-6">
@@ -3469,7 +4195,7 @@ export default function App() {
                       Mes mots →
                     </button>
                     <button
-                      onClick={() => startDrillSession("wordsShort")}
+                      onClick={() => openDrillWithPicker("wordsShort")}
                       className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                     >
                       Commencer <ChevronRight className="w-3 h-3" />
@@ -3515,7 +4241,7 @@ export default function App() {
                       Mes mots →
                     </button>
                     <button
-                      onClick={() => startDrillSession("wordsLong")}
+                      onClick={() => openDrillWithPicker("wordsLong")}
                       className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                     >
                       Commencer <ChevronRight className="w-3 h-3" />
@@ -3561,7 +4287,7 @@ export default function App() {
                       Mes mots →
                     </button>
                     <button
-                      onClick={() => startDrillSession("phrases")}
+                      onClick={() => openDrillWithPicker("phrases")}
                       className="bg-white hover:bg-zinc-200 text-black px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer font-sans"
                     >
                       Commencer <ChevronRight className="w-3 h-3" />
@@ -3587,7 +4313,7 @@ export default function App() {
                   </div>
 
                   <h3 className="text-xl font-serif italic font-medium text-white leading-tight mb-2 group-hover:text-purple-400 transition-colors flex items-center gap-2">
-                    <Volume2 className="w-4 h-4 text-purple-400" /> Dictée AZERTY
+                    <Volume2 className="w-4 h-4 text-purple-400" /> Dictée
                   </h3>
                   <p className="text-xs text-zinc-400 leading-relaxed font-sans mb-4">
                     Pas de texte affiché ! Écoutez l'audio en français et ressaisissez fidèlement la séquence dictée sans erreur.
@@ -3671,31 +4397,57 @@ export default function App() {
                   {/* Scope Choice */}
                   <div className="mb-5">
                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">Contenu et progression :</label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button
-                        onClick={() => setDictationScope("words")}
+                        onClick={() => { setDictationScope("words"); setDictationScope2("auto"); }}
                         className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          dictationScope === "words"
+                          dictationScope === "words" && dictationScope2 === "auto"
                             ? "bg-purple-500/15 border-purple-500 text-white"
                             : "bg-[#0d0d0f] border-white/5 text-zinc-400 hover:text-white hover:border-white/10"
                         }`}
                       >
-                        <span className="text-xs font-bold block mb-0.5">Mots à la chaîne</span>
-                        <span className="text-[10px] text-zinc-500 leading-snug block">Mots courts, moyens puis longs de façon infinie.</span>
+                        <span className="text-xs font-bold block mb-0.5">Mots auto</span>
+                        <span className="text-[10px] text-zinc-500 leading-snug block">Mots générés automatiquement.</span>
                       </button>
                       <button
-                        onClick={() => setDictationScope("progressive")}
+                        onClick={() => { setDictationScope("progressive"); setDictationScope2("auto"); }}
                         className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          dictationScope === "progressive"
+                          dictationScope === "progressive" && dictationScope2 === "auto"
                             ? "bg-purple-500/15 border-purple-500 text-white"
                             : "bg-[#0d0d0f] border-white/5 text-zinc-400 hover:text-white hover:border-white/10"
                         }`}
                       >
-                        <span className="text-xs font-bold block mb-0.5">Progressif complet</span>
-                        <span className="text-[10px] text-zinc-500 leading-snug block">Combinaison de mots qui évolue vers des phrases.</span>
+                        <span className="text-xs font-bold block mb-0.5">Progressif</span>
+                        <span className="text-[10px] text-zinc-500 leading-snug block">Mots qui évoluent vers des phrases.</span>
+                      </button>
+                      <button
+                        onClick={() => setDictationScope2("custom")}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          dictationScope2 === "custom"
+                            ? "bg-purple-500/15 border-purple-500 text-white"
+                            : "bg-[#0d0d0f] border-white/5 text-zinc-400 hover:text-white hover:border-white/10"
+                        }`}
+                      >
+                        <span className="text-xs font-bold block mb-0.5">Personnalisé</span>
+                        <span className="text-[10px] text-zinc-500 leading-snug block">Collez vos propres mots/phrases.</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* Custom Input for Dictation */}
+                  {dictationScope2 === "custom" && (
+                    <div className="mb-5">
+                      <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">Contenu personnalisé :</label>
+                      <p className="text-[10px] text-zinc-500 mb-2">Collez le format #GLOSSARY + #SENTENCES. Le glossaire se révèle après chaque mot bien tapé.</p>
+                      <textarea
+                        rows={6}
+                        value={dictationCustomInput}
+                        onChange={(e) => setDictationCustomInput(e.target.value)}
+                        placeholder={"#GLOSSARY\ngare (train station) — La gare est au centre (The station is downtown)\nbillet (ticket) — Un billet aller-retour (A round-trip ticket)\n\n#SENTENCES\nJe cherche la gare.\nAvez-vous un billet pour Lyon ?"}
+                        className="bg-zinc-950 border border-white/5 focus:border-purple-500/50 rounded-lg p-3 text-sm text-white focus:outline-none font-sans leading-relaxed w-full"
+                      />
+                    </div>
+                  )}
 
                   {/* Level Choice (Hint level) */}
                   <div className="mb-6">
@@ -3754,9 +4506,39 @@ export default function App() {
                     <button
                       onClick={() => {
                         setIsDictationConfigOpen(false);
-                        startDrillSession("dictation");
+                        setDictationRevealedGlossary([]);
+
+                        if (dictationScope2 === "custom" && dictationCustomInput.trim()) {
+                          // Parse custom input
+                          const raw = dictationCustomInput.trim();
+                          const parsed = parsePastedContent(raw);
+                          let items: string[] = [];
+
+                          if (parsed.paragraph) {
+                            items = parsed.paragraph.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+                          }
+
+                          if (items.length === 0) {
+                            items = raw.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+                          }
+
+                          if (parsed.glossary.length > 0) {
+                            setCustomDrillGlossary(parsed.glossary);
+                          }
+
+                          setDictationCustomInput("");
+                          startDrillSession("dictation");
+                          setTimeout(() => {
+                            setDrillItems(items);
+                            setDrillItemIndex(0);
+                            speakDrillTargetText(items[0]);
+                          }, 0);
+                        } else {
+                          openDrillWithPicker("dictation");
+                        }
                       }}
-                      className="flex-1 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all cursor-pointer font-sans shadow-lg shadow-purple-500/20"
+                      disabled={dictationScope2 === "custom" && !dictationCustomInput.trim()}
+                      className="flex-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all cursor-pointer font-sans shadow-lg shadow-purple-500/20"
                     >
                       Démarrer
                     </button>
@@ -4018,7 +4800,8 @@ export default function App() {
 
         {/* VIEW 2.5: INTERACTIVE TYPING MASTER AZERTY DRILL (LETTERS, ACCENTS, OR CALIBRATION) */}
         {currentScreen === "practice" && (practiceType === "letters" || practiceType === "accents" || practiceType === "calibration" || practiceType === "flow" || practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "dictation" || practiceType === "lesson") && (() => {
-          const showGlossary = practiceType === "lesson" && activeLesson?.glossary && activeLesson.glossary.length > 0 && drillStage < 4;
+          const showGlossary = (practiceType === "lesson" && activeLesson?.glossary && activeLesson.glossary.length > 0 && drillStage < 4)
+            || ((practiceType === "wordsShort" || practiceType === "wordsLong" || practiceType === "phrases" || practiceType === "flow" || practiceType === "dictation") && customDrillGlossary.length > 0);
           const currentTargetWord = drillItems[drillItemIndex] || "";
 
           return (
@@ -4480,7 +5263,7 @@ export default function App() {
 
           {/* Side Glossary Panel */}
           <GlossaryPanel
-            entries={activeLesson?.glossary || []}
+            entries={practiceType === "lesson" ? (activeLesson?.glossary || []) : practiceType === "dictation" ? customDrillGlossary.filter(g => dictationRevealedGlossary.includes(g.french)) : customDrillGlossary}
             visible={!!(showGlossary && glossaryExpanded)}
             onToggle={() => setGlossaryExpanded(false)}
             currentTargetWord={currentTargetWord}
@@ -4582,6 +5365,18 @@ export default function App() {
                             setFreeModeTranslation("");
                           }
                           setFreeModeTranslationExpanded(false);
+                          // Compute sentence boundaries for sentence-by-sentence audio
+                          const finalText = (parsed.glossary.length > 0 || parsed.translation) ? parsed.paragraph : freeModeText.trim();
+                          const bounds: number[] = [];
+                          const sentenceEndRegex = /[.!?]/g;
+                          let m: RegExpExecArray | null;
+                          while ((m = sentenceEndRegex.exec(finalText)) !== null) {
+                            // Skip if next char is also punctuation (e.g. "..." or "?!")
+                            if (m.index + 1 < finalText.length && /[.!?]/.test(finalText[m.index + 1])) continue;
+                            bounds.push(m.index + 1);
+                          }
+                          setFreeModeSentenceBounds(bounds);
+                          setFreeModeCurrentSentenceIdx(0);
                           setFreeModeActive(true);
                           setTypedText("");
                           setCurrentStoryErrorChar(null);
@@ -4628,32 +5423,35 @@ export default function App() {
                     </button>
                   </div>
                   <div className="w-full flex-1 min-h-[240px] p-5 bg-[#111216]/50 border border-white/5 rounded-2xl overflow-y-auto relative text-left scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
-                    <div className="text-[#3f404d] text-base sm:text-lg lg:text-xl leading-relaxed font-serif relative">
-                      {freeModeText.split("").map((expectedChar, index) => {
-                        let charClass = "text-[#3f404d]"; // Future text
-                        let borderClass = "";
-
-                        if (index < typedText.length) {
-                          charClass = "text-emerald-400 font-normal";
-                        } else if (index === typedText.length) {
-                          if (currentStoryErrorChar !== null) {
-                            charClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10";
-                            borderClass = "animate-pulse border-l-2 border-rose-500";
-                          } else if (errorMode === "doux" && douxErrorActive) {
-                            charClass = "error-flash text-rose-500 font-bold px-0.5 rounded";
-                            borderClass = "animate-pulse border-l-2 border-rose-500";
-                          } else {
-                            charClass = "text-white font-medium bg-white/10 rounded px-0.5";
-                            borderClass = "animate-pulse border-l-2 border-emerald-400";
-                          }
+                    <div className="text-[#3f404d] text-base sm:text-lg lg:text-xl leading-relaxed font-serif relative whitespace-pre-wrap">
+                      {/* Typed portion — green */}
+                      {typedText.length > 0 && (
+                        <span className="text-emerald-400 font-normal whitespace-pre-wrap">{freeModeText.slice(0, typedText.length)}</span>
+                      )}
+                      {/* Current character — highlighted */}
+                      {typedText.length < freeModeText.length && (() => {
+                        let cursorCharClass: string;
+                        let cursorBorderClass: string;
+                        if (currentStoryErrorChar !== null) {
+                          cursorCharClass = "text-rose-500 underline decoration-rose-500 underline-offset-4 font-bold bg-rose-500/10";
+                          cursorBorderClass = "animate-pulse border-l-2 border-rose-500";
+                        } else if (errorMode === "doux" && douxErrorActive) {
+                          cursorCharClass = "error-flash text-rose-500 font-bold px-0.5 rounded";
+                          cursorBorderClass = "animate-pulse border-l-2 border-rose-500";
+                        } else {
+                          cursorCharClass = "text-white font-medium bg-white/10 rounded px-0.5";
+                          cursorBorderClass = "animate-pulse border-l-2 border-emerald-400";
                         }
-
                         return (
-                          <span key={index} className={`relative whitespace-pre-wrap ${charClass} ${borderClass}`}>
-                            {expectedChar}
+                          <span className={`relative whitespace-pre-wrap ${cursorCharClass} ${cursorBorderClass}`}>
+                            {freeModeText[typedText.length]}
                           </span>
                         );
-                      })}
+                      })()}
+                      {/* Remaining text — dim */}
+                      {typedText.length + 1 < freeModeText.length && (
+                        <span className="text-[#3f404d] whitespace-pre-wrap">{freeModeText.slice(typedText.length + 1)}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -4795,7 +5593,21 @@ export default function App() {
 
                 {freeModeActive && (
                   <button
-                    onClick={() => playSentenceAudio(freeModeText)}
+                    onClick={() => {
+                      // Play only the current sentence
+                      const pos = typedText.length;
+                      let start = 0;
+                      let end = freeModeText.length;
+                      for (let i = 0; i < freeModeSentenceBounds.length; i++) {
+                        if (pos < freeModeSentenceBounds[i]) {
+                          end = freeModeSentenceBounds[i];
+                          break;
+                        }
+                        start = freeModeSentenceBounds[i];
+                      }
+                      const currentSentenceText = freeModeText.slice(start, end).trim();
+                      speakDrillTargetText(currentSentenceText || freeModeText);
+                    }}
                     className="p-2 bg-burgundy hover:bg-burgundy-hover active:bg-burgundy text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                   >
                     <Volume2 className="w-3.5 h-3.5" /> Écouter
@@ -6269,6 +7081,64 @@ export default function App() {
       )}
 
       {/* -----------------------------------------------------------------------
+          MODAL: SESSION PICKER FOR CONTENT DRILLS
+          ----------------------------------------------------------------------- */}
+      {sessionPickerOpen !== null && (() => {
+        const typeLabel: Record<string, string> = { wordsShort: "Mots courts", wordsLong: "Mots longs", phrases: "Phrases", dictation: "Dictée" };
+        const available = getDrillSessionsForType(sessionPickerOpen);
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#111216] border border-white/10 max-w-md w-full rounded-2xl shadow-2xl relative overflow-hidden font-sans">
+              <div className="p-6">
+                <h3 className="text-lg font-serif italic text-white mb-1">{typeLabel[sessionPickerOpen] || "Drill"}</h3>
+                <p className="text-xs text-zinc-500 mb-4">Choisissez une session à pratiquer</p>
+                {available.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-zinc-400 text-sm mb-2">Aucun contenu disponible</p>
+                    <p className="text-zinc-600 text-xs">Demandez à Claude d'ajouter du contenu pour ce mode.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {available.map(key => (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          setSelectedDrillSession(key);
+                          selectedDrillSessionRef.current = key; // sync ref immediately
+                          setSessionPickerOpen(null);
+                          const drillType = sessionPickerOpen;
+                          startDrillSession(drillType);
+                        }}
+                        className="w-full text-left px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition-all cursor-pointer"
+                      >
+                        <span className="text-white text-sm font-medium">{drillsData[key]?.title || key}</span>
+                        <span className="text-zinc-500 text-xs ml-2">
+                          {(() => {
+                            const s = drillsData[key];
+                            const fieldMap: Record<string, string> = { wordsShort: "words_short", wordsLong: "words_long", phrases: "phrases", dictation: "dictee" };
+                            const arr = (s as any)?.[fieldMap[sessionPickerOpen]] || [];
+                            return `${arr.length} items`;
+                          })()}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setSessionPickerOpen(null)}
+                    className="bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer font-sans"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* -----------------------------------------------------------------------
           MODAL OVERLAY 3: CUSTOM DRILL INPUT PANEL
           ----------------------------------------------------------------------- */}
       {customDrillOpen !== null && (
@@ -6295,16 +7165,16 @@ export default function App() {
               <div className="flex flex-col gap-1">
                 <p className="text-zinc-500 text-xs">
                   {customDrillOpen === "wordsShort" || customDrillOpen === "wordsLong"
-                    ? "Un mot ou expression par ligne."
-                    : "Une phrase complète par ligne."}
+                    ? "Un mot par ligne, ou collez le format #GLOSSARY + #WORDS pour activer le panneau glossaire."
+                    : "Une phrase par ligne, ou collez le format #GLOSSARY + #SENTENCES pour activer le panneau glossaire."}
                 </p>
                 <textarea
                   rows={8}
                   value={customDrillInput}
                   onChange={(e) => setCustomDrillInput(e.target.value)}
                   placeholder={customDrillOpen === "wordsShort" || customDrillOpen === "wordsLong"
-                    ? "Entrez vos mots ici...\nExemple:\nbonjour\nmerci\nordinateur"
-                    : "Entrez vos phrases ici...\nExemple:\nJe vais au marché.\nIl fait un temps magnifique aujourd'hui."}
+                    ? "#GLOSSARY\nbonjour (hello) — Bonjour à tous (Hello everyone)\nmerci (thank you) — Merci beaucoup (Thank you very much)\n\n#WORDS\nbonjour, merci"
+                    : "#GLOSSARY\nmarché (market) — Je vais au marché (I go to the market)\n\n#SENTENCES\nJe vais au marché.\nIl fait un temps magnifique aujourd'hui."}
                   className="bg-zinc-950 border border-white/5 focus:border-[#7B1E2B]/50 rounded-lg p-3 text-sm text-white focus:outline-none font-sans leading-relaxed animate-none w-full mt-2"
                 />
               </div>

@@ -88,7 +88,31 @@ export type PracticeType =
   | "phrases"
   | "dictation"
   | "lesson"
-  | "video-dictee";
+  | "video-dictee"
+  | "conversation";
+
+export interface ConversationExchange {
+  speaker: "a" | "b";
+  french: string;
+  english: string;
+  hint?: string;
+}
+
+export interface ConversationRole {
+  label: string;
+  labelEn: string;
+}
+
+export interface ConversationData {
+  id: string;
+  title: string;
+  scenario: string;
+  scenarioEn: string;
+  level: string;
+  roles: { a: ConversationRole; b: ConversationRole };
+  exchanges: ConversationExchange[];
+  glossary: { french: string; english: string }[];
+}
 
 export interface SrtCue {
   index: number;
@@ -98,6 +122,6 @@ export interface SrtCue {
   normalizedText?: string;
 }
 
-export type currentScreen = "library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet";
+export type currentScreen = "library" | "learn" | "practice" | "results" | "lesson-setup" | "carnet" | "conversation";
 
 

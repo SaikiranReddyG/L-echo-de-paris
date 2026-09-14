@@ -1,0 +1,72 @@
+{
+  "test-directions": {
+    "id": "claude-story-test-directions",
+    "title": "Perdu près de la gare",
+    "level": "beginner",
+    "sentences": [
+      {"french": "Je suis devant la gare mais je ne sais pas où aller.", "english": "I'm in front of the station but I don't know where to go."},
+      {"french": "Je demande à un passant : « Où est la boulangerie ? »", "english": "I ask a passerby: 'Where is the bakery?'"},
+      {"french": "Il me dit : « Allez tout droit, puis tournez à gauche. »", "english": "He tells me: 'Go straight ahead, then turn left.'"},
+      {"french": "Je marche lentement et je regarde les enseignes.", "english": "I walk slowly and look at the signs."},
+      {"french": "La boulangerie est juste en face de la pharmacie.", "english": "The bakery is right across from the pharmacy."},
+      {"french": "Enfin, je sens l'odeur du pain frais.", "english": "Finally, I smell the scent of fresh bread."}
+    ],
+    "fullTranslation": "I'm in front of the station but I don't know where to go. I ask a passerby: 'Where is the bakery?' He tells me: 'Go straight ahead, then turn left.' I walk slowly and look at the signs. The bakery is right across from the pharmacy. Finally, I smell the scent of fresh bread.",
+    "glossary": [
+      {"french": "devant", "english": "in front of"},
+      {"french": "tout droit", "english": "straight ahead"},
+      {"french": "à gauche", "english": "to the left"},
+      {"french": "en face de", "english": "across from"},
+      {"french": "lentement", "english": "slowly"},
+      {"french": "enseigne", "english": "sign (shop sign)"}
+    ]
+  },
+  "session5-paris-secrets": {
+    "id": "claude-story-session5-paris-secrets",
+    "title": "Les secrets de Paris",
+    "level": "beginner",
+    "sentences": [
+      {"french": "Paris est particulièrement connue.", "english": "Paris is particularly well-known."},
+      {"french": "Elle est également connue sous le nom de Ville Lumière.", "english": "It is also known by the name City of Light."},
+      {"french": "Les enfants jouent souvent en plein air.", "english": "Children often play outdoors."},
+      {"french": "Il y a beaucoup d'endroits à visiter.", "english": "There are many places to visit."},
+      {"french": "Pour n'en citer que trois : le Louvre, Montmartre et la Seine.", "english": "To name just three: the Louvre, Montmartre, and the Seine."},
+      {"french": "Voici une anecdote amusante.", "english": "Here is a funny anecdote."},
+      {"french": "Savez-vous que sa taille a changé plusieurs fois ?", "english": "Did you know that its height has changed several times?"},
+      {"french": "Rien que cette histoire vaut le détour.", "english": "That story alone is worth the detour."},
+      {"french": "Son guide pense que c'est vrai.", "english": "His guide thinks it's true."},
+      {"french": "Car il l'a lu dans un livre.", "english": "Because he read it in a book."},
+      {"french": "À ce moment-là, tout le monde a attendu.", "english": "At that moment, everyone waited."},
+      {"french": "Avez-vous visité ses endroits préférés ?", "english": "Have you visited his favorite places?"},
+      {"french": "Il faut y aller vite.", "english": "You have to go quickly."},
+      {"french": "Car rien ne dure pour toujours.", "english": "Because nothing lasts forever."}
+    ],
+    "fullTranslation": "Paris is particularly well-known. It is also known by the name City of Light. Children often play outdoors. There are many places to visit. To name just three: the Eiffel Tower, the Louvre, and Montmartre. Here is a funny anecdote. Did you know that its height has changed several times? That story alone is worth the detour. His guide thinks it's true. Because he read it in a book. At that moment, everyone waited. Have you visited his favorite places? You have to go quickly. Because nothing lasts forever.",
+    "glossary": [
+      {"french": "pour n'en citer que trois", "english": "to name just three"},
+      {"french": "également connue sous le nom de", "english": "also known by the name of"},
+      {"french": "en plein air", "english": "outdoors, in the open air"},
+      {"french": "rien que", "english": "just, alone (emphasis)"},
+      {"french": "à ce moment-là", "english": "at that moment"},
+      {"french": "connue", "english": "known, famous"},
+      {"french": "enfants", "english": "children"},
+      {"french": "particulièrement", "english": "particularly"},
+      {"french": "souvent", "english": "often"},
+      {"french": "endroits", "english": "places"},
+      {"french": "car", "english": "because"},
+      {"french": "anecdote", "english": "anecdote"},
+      {"french": "vite", "english": "quickly"},
+      {"french": "rien", "english": "nothing"},
+      {"french": "fois", "english": "time(s)"},
+      {"french": "taille", "english": "size, height"},
+      {"french": "attendu", "english": "waited"},
+      {"french": "changé", "english": "changed"},
+      {"french": "pense", "english": "thinks"},
+      {"french": "savez", "english": "know (vous)"},
+      {"french": "avez", "english": "have (vous)"},
+      {"french": "son", "english": "his/her (masc.)"},
+      {"french": "sa", "english": "his/her (fem.)"},
+      {"french": "ses", "english": "his/her (plural)"}
+    ]
+  }
+}
